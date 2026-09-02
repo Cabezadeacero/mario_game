@@ -16,7 +16,6 @@
             align-items: center;
             justify-content: center;
             min-height: 100vh;
-            overflow: hidden;
         }
 
         #game-container {
@@ -43,6 +42,7 @@
             text-shadow: 2px 2px 0px #000;
             pointer-events: none;
             font-family: monospace;
+            z-index: 10;
         }
 
         #controls-panel {
@@ -50,6 +50,8 @@
             display: flex;
             gap: 15px;
             align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
         }
 
         button {
@@ -104,6 +106,10 @@
     </div>
 
 <script>
+// ============================================================
+// CÓDIGO COMPLETO DEL JUEGO - PAPER MARIO CLONE
+// ============================================================
+
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
@@ -111,16 +117,19 @@ const ctx = canvas.getContext('2d');
 let currentLevel = 1;
 let totalCoins = 0;
 let showDebug = false;
+let cameraX = 0;
+let levelWidth = 2000;
 
 // Variables de transiciones de nivel
 let transitionAlpha = 0;
 let isTransitioning = false;
 let transitionText = "";
 let transitionCallback = null;
+let transitionPhase = 0; // 0: entrada, 1: pausa, 2: salida
 
 // Sistema de control por teclado
 const keys = {};
-window.addEventListener('keydown', e => { keys[e.code] = true; });
+window.addEventListener('keydown', e => { keys[e.code] = true; e.preventDefault(); });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
 function toggleDebug() {
@@ -147,7 +156,7 @@ class Player {
         
         // Propiedades estéticas Paper Mario
         this.facingRight = true;
-        this.visualScaleX = 1; // Para la rotación 2.5D al girar
+        this.visualScaleX = 1;
         this.walkCycle = 0;
         this.bobbing = 0;
         
@@ -177,11 +186,11 @@ class Player {
         if (this.vx > 0) this.facingRight = true;
         if (this.vx < 0) this.facingRight = false;
 
-        // Interpolación del giro 2.5D de papel
+        // Interpolación del giro 2.5D
         let targetScale = this.facingRight ? 1 : -1;
         this.visualScaleX += (targetScale - this.visualScaleX) * 0.25;
 
-        // Animación dinámica de caminar (Paper)
+        // Animación de caminar
         if (Math.abs(this.vx) > 0 && this.isGrounded) {
             this.walkCycle += 0.25;
             this.bobbing = Math.abs(Math.sin(this.walkCycle)) * 4;
@@ -193,28 +202,29 @@ class Player {
         // Manejo de Gravedad y Coyote Time
         if (!this.isGrounded) {
             this.vy += this.gravity;
-            if (this.vy > 12) this.vy = 12; // Velocidad terminal
+            if (this.vy > 12) this.vy = 12;
             this.coyoteCounter--;
         } else {
             this.vy = 0;
             this.coyoteCounter = this.maxCoyoteFrames;
         }
 
-        // Intención de Salto con tolerancia
-        if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space'])) {
+        // Intención de Salto
+        if (keys['ArrowUp'] || keys['KeyW'] || keys['Space']) {
             if (this.coyoteCounter > 0) {
                 this.vy = this.jumpForce;
                 this.isGrounded = false;
-                this.coyoteCounter = 0; // Consumir salto
+                this.coyoteCounter = 0;
             }
         }
 
-        // Aplicar Movimiento Provisional
+        // Aplicar Movimiento
         this.x += this.vx;
         this.y += this.vy;
 
-        // Límites básicos de pantalla e irse al vacío
+        // Límites de pantalla
         if (this.x < 0) this.x = 0;
+        if (this.x > levelWidth - this.width) this.x = levelWidth - this.width;
         if (this.y > canvas.height + 50) {
             this.handleDeath();
         }
@@ -240,69 +250,91 @@ class Player {
 
     draw() {
         ctx.save();
-        // Sombra plana en los pies (Estética Paper Mario)
+        // Sombra
         ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
         ctx.beginPath();
         ctx.ellipse(this.x + this.width/2 - cameraX, this.y + this.height, 14, 4, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Trasladar al centro del cuerpo de Mario para aplicar rotación y deformación
+        // Transformaciones
         ctx.translate(this.x + this.width / 2 - cameraX, this.y + this.height / 2);
         
-        // Efecto de Squash & Stretch (contracción en el aire o al andar)
         let squashY = 1;
         if (!this.isGrounded) {
-            squashY = this.vy < 0 ? 1.1 : 0.95; // Se estira al subir, se aplasta al caer
+            squashY = this.vy < 0 ? 1.1 : 0.95;
         }
         ctx.scale(this.visualScaleX, squashY);
 
-        // Desplazamiento por la animación de caminata
         let currentBob = this.isGrounded ? this.bobbing : 0;
         ctx.translate(0, -currentBob);
 
-        // --- DIBUJO GEOMÉTRICO CON BORDE NEGRO DE TROQUEL ---
+        // Dibujo del personaje
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 2.5;
         ctx.lineJoin = 'round';
 
-        // 1. Gorra y cabeza
-        ctx.fillStyle = '#ff4d4d'; // Rojo Mario
-        ctx.beginPath(); ctx.rect(-10, -22, 20, 7); ctx.fill(); ctx.stroke(); // Gorra
-        ctx.fillStyle = '#ffcc99'; // Piel
-        ctx.beginPath(); ctx.rect(-8, -15, 16, 11); ctx.fill(); ctx.stroke(); // Cara
+        // Gorra
+        ctx.fillStyle = '#ff4d4d';
+        ctx.beginPath();
+        ctx.rect(-10, -22, 20, 7);
+        ctx.fill();
+        ctx.stroke();
 
-        // Detalle de bigote y ojo (siempre apuntando al frente relativo)
+        // Cara
+        ctx.fillStyle = '#ffcc99';
+        ctx.beginPath();
+        ctx.rect(-8, -15, 16, 11);
+        ctx.fill();
+        ctx.stroke();
+
+        // Bigote
         ctx.fillStyle = '#4a2711';
-        ctx.fillRect(2, -11, 5, 3); // Bigote
+        ctx.fillRect(2, -11, 5, 3);
+        
+        // Ojo
         ctx.fillStyle = '#000';
-        ctx.fillRect(3, -14, 2, 3);  // Ojo
+        ctx.fillRect(3, -14, 2, 3);
 
-        // 2. Overol y Cuerpo
-        ctx.fillStyle = '#ff4d4d'; // Camisa roja
-        ctx.beginPath(); ctx.rect(-8, -4, 16, 12); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#2e5cb8'; // Overol Azul
-        ctx.beginPath(); ctx.rect(-7, 2, 14, 10); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#ffcc00'; // Botón amarillo
+        // Camisa
+        ctx.fillStyle = '#ff4d4d';
+        ctx.beginPath();
+        ctx.rect(-8, -4, 16, 12);
+        ctx.fill();
+        ctx.stroke();
+
+        // Overol
+        ctx.fillStyle = '#2e5cb8';
+        ctx.beginPath();
+        ctx.rect(-7, 2, 14, 10);
+        ctx.fill();
+        ctx.stroke();
+
+        // Botón
+        ctx.fillStyle = '#ffcc00';
         ctx.fillRect(2, 3, 2, 2);
 
-        // 3. Piernas animadas de papel
+        // Piernas
         ctx.fillStyle = '#2e5cb8';
         let piernaIzqY = 12;
         let piernaDerY = 12;
         if (Math.abs(this.vx) > 0 && this.isGrounded) {
-            // Alternar altura de piernas simulando acordeón de papel
             piernaIzqY += Math.sin(this.walkCycle) * 3;
             piernaDerY -= Math.sin(this.walkCycle) * 3;
         }
         
-        // Dibujo Pierna Izquierda
-        ctx.beginPath(); ctx.rect(-6, 10, 4, piernaIzqY - 10 + 2); ctx.fill(); ctx.stroke();
-        // Dibujo Pierna Derecha
-        ctx.beginPath(); ctx.rect(2, 10, 4, piernaDerY - 10 + 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath();
+        ctx.rect(-6, 10, 4, piernaIzqY - 10 + 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.rect(2, 10, 4, piernaDerY - 10 + 2);
+        ctx.fill();
+        ctx.stroke();
 
         ctx.restore();
 
-        // Hitbox de depuración
+        // Hitbox debug
         if (showDebug) {
             ctx.strokeStyle = '#00ffff';
             ctx.lineWidth = 2;
@@ -311,7 +343,7 @@ class Player {
     }
 }
 
-// --- CLASE ENEMIGO (GOOMBA DE PAPEL) ---
+// --- CLASE ENEMIGO ---
 class Enemy {
     constructor(x, y, minX, maxX) {
         this.x = x;
@@ -328,7 +360,6 @@ class Enemy {
     update() {
         this.x += this.vx;
 
-        // Comportamiento de patrulla inteligente (Rebotar en límites asignados)
         if (this.x <= this.minX) {
             this.x = this.minX;
             this.vx *= -1;
@@ -338,7 +369,6 @@ class Enemy {
             this.vx *= -1;
         }
 
-        // Giro visual de papel
         let targetScale = this.vx > 0 ? 1 : -1;
         this.visualScaleX += (targetScale - this.visualScaleX) * 0.2;
     }
@@ -348,7 +378,7 @@ class Enemy {
         let bobbing = Math.abs(Math.sin(this.walkCycle)) * 3;
 
         ctx.save();
-        // Sombra plana inferior
+        // Sombra
         ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
         ctx.beginPath();
         ctx.ellipse(this.x + this.width/2 - cameraX, this.y + this.height, 12, 3, 0, 0, Math.PI * 2);
@@ -361,22 +391,26 @@ class Enemy {
         ctx.lineWidth = 2.5;
         ctx.lineJoin = 'round';
 
-        // Cabeza hongo (Marrón Goomba)
+        // Cuerpo
         ctx.fillStyle = '#8a5229';
         ctx.beginPath();
         ctx.moveTo(-14, 4);
         ctx.bezierCurveTo(-14, -14, 14, -14, 14, 4);
         ctx.closePath();
-        ctx.fill(); ctx.stroke();
+        ctx.fill();
+        ctx.stroke();
 
-        // Ojos enojados
+        // Ojos
         ctx.fillStyle = '#000';
         ctx.fillRect(2, -4, 2, 4);
         ctx.fillRect(-4, -4, 2, 4);
 
-        // Cuerpo/Base pequeña
+        // Base
         ctx.fillStyle = '#ffebcc';
-        ctx.beginPath(); ctx.rect(-6, 4, 12, 9); ctx.fill(); ctx.stroke();
+        ctx.beginPath();
+        ctx.rect(-6, 4, 12, 9);
+        ctx.fill();
+        ctx.stroke();
 
         ctx.restore();
 
@@ -393,75 +427,59 @@ let platforms = [];
 let coins = [];
 let enemies = [];
 let goalFlag = { x: 0, y: 0, width: 20, height: 160 };
-let cameraX = 0;
-let levelWidth = 2000;
-
 const player = new Player();
 
-// --- GENERADOR DE NIVELES PROCEDURAL ACCESIBLE Y MATEMÁTICO ---
+// --- GENERADOR DE NIVELES ---
 function loadLevel(levelNum) {
     platforms = [];
     coins = [];
     enemies = [];
     
-    levelWidth = 1500 + levelNum * 400; // El mapa crece progresivamente
+    levelWidth = 1500 + levelNum * 400;
     player.resetPosition();
     cameraX = 0;
 
-    // 1. Suelo Base Seguro Inicial
+    // Suelo inicial
     platforms.push({ x: 0, y: 380, width: 400, height: 100 });
 
     let currentX = 400;
     let currentY = 380;
 
-    // Bucle para crear tramos de plataformas lógicamente alcanzables
     while (currentX < levelWidth - 300) {
         let r = Math.random();
 
-        if (r < 0.35) { 
-            // Camino Continuo Llano
+        if (r < 0.35) {
+            // Plataforma continua
             let w = 150 + Math.random() * 150;
             platforms.push({ x: currentX, y: currentY, width: w, height: 100 });
-            
-            // Colocar monedas y un enemigo patrullando este tramo seguro
             spawnCoinsOnPlatform(currentX, currentY, w);
             if (w > 180) {
                 enemies.push(new Enemy(currentX + 50, currentY - 26, currentX, currentX + w));
             }
             currentX += w;
 
-        } else if (r < 0.70) { 
-            // Obstáculo tipo Tubería Clásica (Altura acotada para que sea saltable)
-            let pipeHeight = 45 + Math.random() * 30; // Max 75 de altura
+        } else if (r < 0.70) {
+            // Tubería
+            let pipeHeight = 45 + Math.random() * 30;
             let pipeWidth = 50;
-
-            // Suelo plano debajo de la tubería
             platforms.push({ x: currentX, y: currentY, width: 120, height: 100 });
-            // La tubería en sí
             platforms.push({ x: currentX + 35, y: currentY - pipeHeight, width: pipeWidth, height: pipeHeight + 100 });
-
             currentX += 120;
 
-        } else { 
-            // Foso Vacío Controlado con Plataforma de Rescate en el medio
-            let pitWidth = 110 + Math.random() * 50; // Ancho máximo del vacío
-            
-            // Determinar cambio de altura sutil (Máximo variación de 50px hacia arriba o abajo)
+        } else {
+            // Foso con plataforma
+            let pitWidth = 110 + Math.random() * 50;
             let nextY = currentY + (Math.random() * 100 - 50);
             if (nextY > 400) nextY = 400;
-            if (nextY < 220) nextY = 220; // Que no quede muy alto en el cielo
+            if (nextY < 220) nextY = 220;
 
-            // Plataforma flotante salvavidas central para saltos limpios
             let platW = 60;
             let platX = currentX + (pitWidth / 2) - (platW / 2);
-            let platY = Math.min(currentY, nextY) - 30; // Posición óptima intermedia
+            let platY = Math.min(currentY, nextY) - 30;
 
             platforms.push({ x: platX, y: platY, width: platW, height: 20 });
-            
-            // Moneda de guía sobre la plataforma flotante
             coins.push({ x: platX + platW/2 - 10, y: platY - 40, width: 18, height: 18, collected: false });
 
-            // Siguiente terreno firme tras el foso
             let nextSectionWidth = 150 + Math.random() * 100;
             platforms.push({ x: currentX + pitWidth, y: nextY, width: nextSectionWidth, height: 100 });
             
@@ -470,7 +488,7 @@ function loadLevel(levelNum) {
         }
     }
 
-    // Plataforma Final Segura para colocar el Poste de Meta
+    // Plataforma final
     platforms.push({ x: currentX, y: 380, width: 400, height: 100 });
     goalFlag.x = currentX + 150;
     goalFlag.y = 380 - goalFlag.height;
@@ -497,36 +515,44 @@ function updateUI() {
     document.getElementById('lbl-lives').textContent = player.lives;
 }
 
-// --- LOGICA DE TRANSICIONES SUTILES ---
+// --- TRANSICIONES ---
 function startTransition(text, callback) {
     isTransitioning = true;
     transitionText = text;
     transitionAlpha = 0;
+    transitionPhase = 0;
     transitionCallback = callback;
 }
 
 function updateTransition() {
     if (!isTransitioning) return;
 
-    if (transitionCallback !== null) {
-        // Fase de Fundido de entrada (Oscurecer)
+    if (transitionPhase === 0) {
+        // Fundido de entrada (oscurecer)
         transitionAlpha += 0.04;
         if (transitionAlpha >= 1) {
             transitionAlpha = 1;
-            transitionCallback(); // Ejecutar cambio de estado (Próximo nivel / Revivir)
-            transitionCallback = null; // Pasar a fase de aclarado
+            transitionPhase = 1;
+            if (transitionCallback) {
+                transitionCallback();
+                transitionCallback = null;
+            }
         }
-    } else {
-        // Fase de Fundido de salida (Aclarar)
+    } else if (transitionPhase === 1) {
+        // Pequeña pausa
+        transitionPhase = 2;
+    } else if (transitionPhase === 2) {
+        // Fundido de salida (aclarar)
         transitionAlpha -= 0.04;
         if (transitionAlpha <= 0) {
             transitionAlpha = 0;
             isTransitioning = false;
+            transitionPhase = 0;
         }
     }
 }
 
-// --- DETECTOR DE COLISIONES RECTANGULARES (AABB) ---
+// --- COLISIONES ---
 function checkCollision(r1, r2) {
     return r1.x < r2.x + r2.width &&
            r1.x + r1.width > r2.x &&
@@ -534,118 +560,22 @@ function checkCollision(r1, r2) {
            r1.y + r1.height > r2.y;
 }
 
-// --- BUCLE DE JUEGO PRINCIPAL ---
-function gameLoop() {
-    // 1. ACTUALIZACIÓN DE ESTADOS
-    if (!isTransitioning) {
-        player.update();
-
-        // Movimiento de la Cámara suave enfocado en Mario
-        let targetCamX = player.x - canvas.width / 3;
-        cameraX += (targetCamX - cameraX) * 0.1;
-        if (cameraX < 0) cameraX = 0;
-        if (cameraX > levelWidth - canvas.width) cameraX = levelWidth - canvas.width;
-
-        // Gestión Avanzada de Colisiones con Plataformas Rígidas
-        player.isGrounded = false;
-        for (let plat of platforms) {
-            if (checkCollision(player, plat)) {
-                // Resolver colisión desde arriba (Aterrizaje óptimo)
-                if (player.vy > 0 && (player.y + player.height - player.vy) <= plat.y + 4) {
-                    player.y = plat.y - player.height;
-                    player.isGrounded = true;
-                }
-                // Resolver colisión lateral contra tuberías o muros elevados
-                else if (player.vx > 0 && (player.x + player.width - player.vx) <= plat.x) {
-                    player.x = plat.x - player.width;
-                }
-                else if (player.vx < 0 && (player.x - player.vx) >= plat.x + plat.width) {
-                    player.x = plat.x + plat.width;
-                }
-            }
-        }
-
-        // Gestión de Recolección de Monedas
-        for (let coin of coins) {
-            if (!coin.collected && checkCollision(player, coin)) {
-                coin.collected = true;
-                totalCoins++;
-                updateUI();
-            }
-        }
-
-        // Gestión de Enemigos y Combate Aéreo
-        for (let i = enemies.length - 1; i >= 0; i--) {
-            let enemy = enemies[i];
-            enemy.update();
-
-            if (checkCollision(player, enemy)) {
-                // ¿Viene cayendo sobre la cabeza del enemigo?
-                if (player.vy > 0 && (player.y + player.height - player.vy) <= enemy.y + 8) {
-                    enemies.splice(i, 1); // Eliminar enemigo
-                    player.vy = player.jumpForce * 0.75; // Impulso elástico de salto
-                    totalCoins += 2; // Recompensa extra
-                    updateUI();
-                } else {
-                    // Impacto letal de costado
-                    player.handleDeath();
-                    break;
-                }
-            }
-        }
-
-        // Comprobación de Meta (Bandera)
-        if (checkCollision(player, goalFlag)) {
-            if (currentLevel < 10) {
-                startTransition(`¡NIVEL ${currentLevel} COMPLETADO!\nCargando siguiente mundo...`, () => {
-                    currentLevel++;
-                    loadLevel(currentLevel);
-                });
-            } else {
-                startTransition("¡FELICITACIONES!\nCompletaste los 10 niveles del juego.", () => {
-                    currentLevel = 1;
-                    totalCoins = 0;
-                    player.lives = 3;
-                  // Continuación del código donde se cortó
-                    currentLevel = 1;
-                    totalCoins = 0;
-                    player.lives = 3;
-                    loadLevel(currentLevel);
-                });
-            }
-        }
-    }
-
-    // Actualizar transiciones
-    updateTransition();
-
-    // 2. DIBUJADO DEL JUEGO
-    drawGame();
-
-    requestAnimationFrame(gameLoop);
-}
-
+// --- DIBUJADO ---
 function drawGame() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Dibujar plataformas
-    ctx.shadowColor = 'rgba(0,0,0,0.2)';
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetY = 4;
-
     for (let plat of platforms) {
         let drawX = plat.x - cameraX;
         if (drawX > canvas.width || drawX + plat.width < 0) continue;
 
-        // Estilo Paper Mario - bloques con bordes
-        ctx.fillStyle = '#8B7355'; // Marrón tierra
+        ctx.fillStyle = '#8B7355';
         ctx.fillRect(drawX, plat.y, plat.width, plat.height);
-        
         ctx.strokeStyle = '#5D4037';
         ctx.lineWidth = 2;
         ctx.strokeRect(drawX, plat.y, plat.width, plat.height);
 
-        // Textura de líneas horizontales (estilo papel)
+        // Textura
         ctx.strokeStyle = 'rgba(93, 64, 55, 0.3)';
         ctx.lineWidth = 1;
         for (let lineY = plat.y + 20; lineY < plat.y + plat.height; lineY += 20) {
@@ -656,16 +586,12 @@ function drawGame() {
         }
     }
 
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-
     // Dibujar monedas
     for (let coin of coins) {
         if (coin.collected) continue;
         let drawX = coin.x - cameraX;
         if (drawX > canvas.width || drawX + coin.width < 0) continue;
 
-        // Moneda brillante estilo Paper Mario
         ctx.fillStyle = '#FFD700';
         ctx.shadowColor = 'rgba(255, 215, 0, 0.5)';
         ctx.shadowBlur = 15;
@@ -676,7 +602,6 @@ function drawGame() {
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Brillo interior
         ctx.shadowBlur = 0;
         ctx.fillStyle = '#FFF8DC';
         ctx.beginPath();
@@ -689,14 +614,12 @@ function drawGame() {
         enemy.draw();
     }
 
-    // Dibujar bandera de meta
+    // Dibujar bandera
     let flagDrawX = goalFlag.x - cameraX;
     if (flagDrawX > -20 && flagDrawX < canvas.width + 20) {
-        // Poste
         ctx.fillStyle = '#8B4513';
         ctx.fillRect(flagDrawX + 8, goalFlag.y, 4, goalFlag.height);
         
-        // Bandera
         ctx.fillStyle = '#FF4500';
         ctx.shadowBlur = 8;
         ctx.shadowColor = 'rgba(255, 69, 0, 0.4)';
@@ -710,7 +633,6 @@ function drawGame() {
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Estrella en la bandera
         ctx.shadowBlur = 0;
         ctx.fillStyle = '#FFD700';
         ctx.font = '20px Arial';
@@ -720,7 +642,7 @@ function drawGame() {
     // Dibujar jugador
     player.draw();
 
-    // Dibujar overlay de transición
+    // Overlay de transición
     if (isTransitioning) {
         ctx.fillStyle = `rgba(0, 0, 0, ${transitionAlpha * 0.8})`;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -738,10 +660,92 @@ function drawGame() {
             ctx.shadowBlur = 0;
         }
     }
+}
 
-    ctx.shadowBlur = 0;
+// --- BUCLE PRINCIPAL ---
+function gameLoop() {
+    if (!isTransitioning) {
+        player.update();
+
+        // Cámara
+        let targetCamX = player.x - canvas.width / 3;
+        cameraX += (targetCamX - cameraX) * 0.1;
+        if (cameraX < 0) cameraX = 0;
+        if (cameraX > levelWidth - canvas.width) cameraX = levelWidth - canvas.width;
+
+        // Colisiones con plataformas
+        player.isGrounded = false;
+        for (let plat of platforms) {
+            if (checkCollision(player, plat)) {
+                if (player.vy > 0 && (player.y + player.height - player.vy) <= plat.y + 4) {
+                    player.y = plat.y - player.height;
+                    player.isGrounded = true;
+                    player.vy = 0;
+                }
+                else if (player.vx > 0 && (player.x + player.width - player.vx) <= plat.x) {
+                    player.x = plat.x - player.width;
+                }
+                else if (player.vx < 0 && (player.x - player.vx) >= plat.x + plat.width) {
+                    player.x = plat.x + plat.width;
+                }
+            }
+        }
+
+        // Recolectar monedas
+        for (let coin of coins) {
+            if (!coin.collected && checkCollision(player, coin)) {
+                coin.collected = true;
+                totalCoins++;
+                updateUI();
+            }
+        }
+
+        // Enemigos
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            let enemy = enemies[i];
+            enemy.update();
+
+            if (checkCollision(player, enemy)) {
+                if (player.vy > 0 && (player.y + player.height - player.vy) <= enemy.y + 8) {
+                    enemies.splice(i, 1);
+                    player.vy = player.jumpForce * 0.75;
+                    totalCoins += 2;
+                    updateUI();
+                } else {
+                    player.handleDeath();
+                    break;
+                }
+            }
+        }
+
+        // Meta
+        if (checkCollision(player, goalFlag)) {
+            if (currentLevel < 10) {
+                startTransition(`¡NIVEL ${currentLevel} COMPLETADO!\nCargando siguiente mundo...`, () => {
+                    currentLevel++;
+                    loadLevel(currentLevel);
+                });
+            } else {
+                startTransition("¡FELICITACIONES!\nCompletaste los 10 niveles del juego.", () => {
+                    currentLevel = 1;
+                    totalCoins = 0;
+                    player.lives = 3;
+                    loadLevel(currentLevel);
+                });
+            }
+        }
+    }
+
+    updateTransition();
+    drawGame();
+    requestAnimationFrame(gameLoop);
 }
 
 // --- INICIAR EL JUEGO ---
 loadLevel(1);
 gameLoop();
+
+console.log('🎮 ¡Juego iniciado correctamente!');
+</script>
+</body>
+</html>
