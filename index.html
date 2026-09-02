@@ -3,124 +3,108 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paper Mario Clone - Con Tortugas y Bloques</title>
+    <title>Paper Mario - Con Castillo y Tortugas</title>
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            margin: 0;
-            padding: 0;
-            background: #111;
-            color: #fff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             min-height: 100vh;
+            font-family: 'Segoe UI', sans-serif;
         }
-
         #game-container {
             position: relative;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            border-radius: 8px;
+            border-radius: 12px;
             overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+            border: 3px solid #e94560;
         }
-
         canvas {
-            background: linear-gradient(to bottom, #70c5ce, #b7e9f7);
             display: block;
+            background: linear-gradient(to bottom, #5c94fc, #87CEEB);
         }
-
         #ui-layer {
             position: absolute;
-            top: 15px;
+            top: 12px;
             left: 20px;
             right: 20px;
             display: flex;
             justify-content: space-between;
-            font-size: 20px;
+            font-size: 18px;
             font-weight: bold;
-            text-shadow: 2px 2px 0px #000;
+            color: white;
+            text-shadow: 3px 3px 0 #000, -1px -1px 0 #000;
             pointer-events: none;
-            font-family: monospace;
+            font-family: 'Courier New', monospace;
             z-index: 10;
         }
-
         #controls-panel {
             margin-top: 15px;
             display: flex;
             gap: 15px;
-            align-items: center;
             flex-wrap: wrap;
             justify-content: center;
         }
-
         button {
-            background: #e74c3c;
+            background: #e94560;
             color: white;
             border: none;
-            padding: 10px 20px;
+            padding: 10px 25px;
             font-size: 14px;
             font-weight: bold;
-            border-radius: 5px;
+            border-radius: 8px;
             cursor: pointer;
-            transition: background 0.2s, transform 0.1s;
+            transition: all 0.2s;
             box-shadow: 0 4px 0 #c0392b;
         }
-
-        button:active {
-            transform: translateY(4px);
-            box-shadow: none;
-        }
-
-        button.active {
-            background: #2ecc71;
-            box-shadow: 0 4px 0 #27ae60;
-        }
-
+        button:active { transform: translateY(4px); box-shadow: none; }
+        button.active { background: #2ecc71; box-shadow: 0 4px 0 #27ae60; }
         .instructions {
-            font-size: 14px;
+            font-size: 13px;
             color: #aaa;
-            max-width: 600px;
+            max-width: 650px;
             text-align: center;
-            line-height: 1.4;
+            line-height: 1.5;
         }
     </style>
 </head>
 <body>
 
-    <div id="game-container">
-        <div id="ui-layer">
-            <div id="ui-left">NIVEL: <span id="lbl-level">1</span>/10</div>
-            <div id="ui-center">MONEDAS: <span id="lbl-coins">0</span></div>
-            <div id="ui-right">VIDAS: <span id="lbl-lives">3</span></div>
-        </div>
-        <canvas id="gameCanvas" width="800" height="450"></canvas>
+<div id="game-container">
+    <div id="ui-layer">
+        <div>🏰 NIVEL: <span id="lbl-level">1</span>/10</div>
+        <div>🪙 <span id="lbl-coins">0</span></div>
+        <div>❤️ <span id="lbl-lives">3</span></div>
     </div>
+    <canvas id="gameCanvas" width="900" height="500"></canvas>
+</div>
 
-    <div id="controls-panel">
-        <button id="btn-debug" onclick="toggleDebug()">Visualizar Colisiones: APAGADO</button>
-        <div class="instructions">
-            <strong>Controles:</strong> Flechas / A-D para Moverse. Flecha Arriba / W / Espacio para Saltar.<br>
-            Golpea bloques desde abajo con salto. ¡Patea tortugas!
-        </div>
+<div id="controls-panel">
+    <button id="btn-debug" onclick="toggleDebug()">🔍 Debug: OFF</button>
+    <div class="instructions">
+        <strong>🎮 Controles:</strong> ← → / A-D Moverse · ↑ / W / Espacio Saltar<br>
+        💥 Salta desde abajo para romper bloques · 🐢 Patea tortugas
     </div>
+</div>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+const W = 900, H = 500;
 
-// --- CONFIGURACIÓN ---
+// ========== ESTADOS GLOBALES ==========
 let currentLevel = 1;
 let totalCoins = 0;
 let showDebug = false;
 let cameraX = 0;
-let levelWidth = 2000;
-
-let transitionAlpha = 0;
-let isTransitioning = false;
-let transitionText = "";
-let transitionCallback = null;
-let transitionPhase = 0;
+let levelWidth = 3000;
+let gameState = 'playing'; // 'playing' | 'transition' | 'castle'
+let transitionTimer = 0;
+let castleScreen = false;
+let castleTimer = 0;
 
 const keys = {};
 window.addEventListener('keydown', e => { keys[e.code] = true; e.preventDefault(); });
@@ -128,40 +112,35 @@ window.addEventListener('keyup', e => { keys[e.code] = false; });
 
 function toggleDebug() {
     showDebug = !showDebug;
-    const btn = document.getElementById('btn-debug');
-    btn.textContent = `Visualizar Colisiones: ${showDebug ? 'ENCENDIDO' : 'APAGADO'}`;
-    btn.classList.toggle('active', showDebug);
+    document.getElementById('btn-debug').textContent = `🔍 Debug: ${showDebug ? 'ON' : 'OFF'}`;
+    document.getElementById('btn-debug').classList.toggle('active', showDebug);
 }
 
-// --- CLASE BLOQUE ROMPIBLE ---
+// ========== CLASE BLOQUE ROMPIBLE ==========
 class BreakableBlock {
     constructor(x, y) {
         this.x = x;
         this.y = y;
-        this.width = 30;
-        this.height = 30;
+        this.w = 32;
+        this.h = 32;
         this.broken = false;
         this.bounceY = 0;
         this.bounceSpeed = 0;
-        this.spawnCoin = false;
-        this.hitCooldown = 0;
+        this.hitCount = 0;
+        this.maxHits = 3;
+        this.coinReward = false;
+        this.animTimer = 0;
     }
 
-    hitFromBelow() {
+    hit() {
         if (this.broken) return false;
-        if (this.hitCooldown > 0) return false;
+        this.hitCount++;
+        this.bounceY = -10;
+        this.bounceSpeed = 0.6;
         
-        this.hitCooldown = 20;
-        this.bounceY = -8;
-        this.bounceSpeed = 0.8;
+        if (Math.random() < 0.25) this.coinReward = true;
         
-        // 30% de probabilidad de soltar moneda
-        if (Math.random() < 0.3) {
-            this.spawnCoin = true;
-        }
-        
-        // Romper después de 3 golpes
-        if (Math.random() < 0.2) {
+        if (this.hitCount >= this.maxHits) {
             this.broken = true;
             return true;
         }
@@ -169,8 +148,6 @@ class BreakableBlock {
     }
 
     update() {
-        if (this.hitCooldown > 0) this.hitCooldown--;
-        
         if (this.bounceY < 0) {
             this.bounceY += this.bounceSpeed;
             this.bounceSpeed += 0.3;
@@ -178,51 +155,65 @@ class BreakableBlock {
             this.bounceY = 0;
             this.bounceSpeed = 0;
         }
+        this.animTimer += 0.05;
     }
 
     draw() {
         if (this.broken) return;
-        
-        let drawX = this.x - cameraX;
-        let drawY = this.y + this.bounceY;
-        
-        if (drawX > canvas.width || drawX + this.width < 0) return;
+        let dx = this.x - cameraX;
+        if (dx > W + 50 || dx + this.w < -50) return;
+        let dy = this.y + this.bounceY;
 
-        // Caja con estilo Mario
-        ctx.fillStyle = '#CD853F';
-        ctx.fillRect(drawX, drawY, this.width, this.height);
+        // Caja
+        let gradient = ctx.createLinearGradient(dx, dy, dx + this.w, dy + this.h);
+        gradient.addColorStop(0, '#D4A574');
+        gradient.addColorStop(0.5, '#C4956A');
+        gradient.addColorStop(1, '#B8860B');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(dx, dy, this.w, this.h);
         
         // Borde
         ctx.strokeStyle = '#8B6914';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(drawX, drawY, this.width, this.height);
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(dx, dy, this.w, this.h);
         
-        // Detalles (marca de interrogación)
+        // Marco interior
+        ctx.strokeStyle = '#A0522D';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(dx + 3, dy + 3, this.w - 6, this.h - 6);
+
+        // ¿Interrogación o daño?
         ctx.fillStyle = '#FFF8DC';
-        ctx.font = '20px Arial';
+        ctx.font = 'bold 20px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('?', drawX + this.width/2, drawY + this.height - 6);
-        
+        ctx.textBaseline = 'middle';
+        let icon = this.hitCount === 0 ? '?' : '💥';
+        ctx.fillText(icon, dx + this.w/2, dy + this.h/2 + 1);
+
         // Brillo
         ctx.fillStyle = 'rgba(255,255,255,0.15)';
-        ctx.fillRect(drawX + 4, drawY + 4, 6, 6);
+        ctx.fillRect(dx + 4, dy + 4, 8, 8);
 
+        // Mostrar golpes restantes en debug
         if (showDebug) {
+            ctx.fillStyle = '#00ff00';
+            ctx.font = '10px monospace';
+            ctx.fillText(`${this.maxHits - this.hitCount}`, dx + this.w/2, dy + this.h + 14);
             ctx.strokeStyle = '#00ff00';
             ctx.lineWidth = 1;
-            ctx.strokeRect(drawX, drawY, this.width, this.height);
+            ctx.strokeRect(dx, dy, this.w, this.h);
         }
     }
 }
 
-// --- CLASE TORTUGA (KOOPA) ---
+// ========== CLASE TORTUGA (KOOPA) ==========
 class Koopa {
     constructor(x, y, minX, maxX) {
         this.x = x;
         this.y = y;
-        this.width = 28;
-        this.height = 30;
-        this.vx = 1.0;
+        this.w = 30;
+        this.h = 32;
+        this.vx = 1.2;
         this.minX = minX;
         this.maxX = maxX;
         this.isShell = false;
@@ -230,49 +221,36 @@ class Koopa {
         this.shellTimer = 0;
         this.facingRight = true;
         this.walkCycle = 0;
+        this.alive = true;
     }
 
     update() {
+        if (!this.alive) return;
+        
         if (this.isShell) {
-            // Caparazón: se desliza y frena
             this.x += this.shellSpeed;
             this.shellSpeed *= 0.995;
             
             if (Math.abs(this.shellSpeed) < 0.1) {
                 this.shellSpeed = 0;
                 this.shellTimer++;
-                if (this.shellTimer > 120) { // 2 segundos
+                if (this.shellTimer > 100) {
                     this.isShell = false;
                     this.vx = this.facingRight ? 1 : -1;
+                    this.shellTimer = 0;
                 }
             }
             
-            // Rebota en bordes como caparazón
-            if (this.x <= this.minX) {
-                this.x = this.minX;
-                this.shellSpeed = Math.abs(this.shellSpeed);
-            }
-            if (this.x + this.width >= this.maxX) {
-                this.x = this.maxX - this.width;
-                this.shellSpeed = -Math.abs(this.shellSpeed);
-            }
+            if (this.x <= this.minX) { this.x = this.minX; this.shellSpeed = Math.abs(this.shellSpeed); }
+            if (this.x + this.w >= this.maxX) { this.x = this.maxX - this.w; this.shellSpeed = -Math.abs(this.shellSpeed); }
             return;
         }
 
-        // Movimiento normal
         this.x += this.vx;
         this.walkCycle += 0.15;
 
-        if (this.x <= this.minX) {
-            this.x = this.minX;
-            this.vx *= -1;
-            this.facingRight = true;
-        }
-        if (this.x + this.width >= this.maxX) {
-            this.x = this.maxX - this.width;
-            this.vx *= -1;
-            this.facingRight = false;
-        }
+        if (this.x <= this.minX) { this.x = this.minX; this.vx = Math.abs(this.vx); this.facingRight = true; }
+        if (this.x + this.w >= this.maxX) { this.x = this.maxX - this.w; this.vx = -Math.abs(this.vx); this.facingRight = false; }
     }
 
     kick(speed) {
@@ -282,67 +260,98 @@ class Koopa {
     }
 
     draw() {
-        let drawX = this.x - cameraX;
-        if (drawX > canvas.width || drawX + this.width < 0) return;
+        if (!this.alive) return;
+        let dx = this.x - cameraX;
+        if (dx > W + 50 || dx + this.w < -50) return;
 
         // Sombra
-        ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+        ctx.fillStyle = "rgba(0,0,0,0.2)";
         ctx.beginPath();
-        ctx.ellipse(drawX + this.width/2, this.y + this.height + 2, 14, 3, 0, 0, Math.PI * 2);
+        ctx.ellipse(dx + this.w/2, this.y + this.h + 2, 14, 4, 0, 0, Math.PI*2);
         ctx.fill();
 
         ctx.save();
-        ctx.translate(drawX + this.width/2, this.y + this.height/2);
+        ctx.translate(dx + this.w/2, this.y + this.h/2);
 
         if (this.isShell) {
-            // Caparazón (círculo verde)
-            ctx.fillStyle = '#2E8B57';
+            // Caparazón
+            let grad = ctx.createRadialGradient(-3, -3, 2, 0, 0, 14);
+            grad.addColorStop(0, '#4CAF50');
+            grad.addColorStop(0.7, '#2E7D32');
+            grad.addColorStop(1, '#1B5E20');
+            ctx.fillStyle = grad;
             ctx.beginPath();
-            ctx.arc(0, 0, 14, 0, Math.PI * 2);
+            ctx.arc(0, 0, 14, 0, Math.PI*2);
             ctx.fill();
             ctx.strokeStyle = '#1a4f33';
             ctx.lineWidth = 2;
             ctx.stroke();
             
-            // Detalles del caparazón
-            ctx.strokeStyle = '#3CB371';
+            // Detalles
+            ctx.strokeStyle = 'rgba(76, 175, 80, 0.4)';
             ctx.lineWidth = 1.5;
             ctx.beginPath();
-            ctx.arc(-4, -4, 6, 0, Math.PI * 2);
+            ctx.arc(-5, -5, 6, 0, Math.PI*2);
             ctx.stroke();
             ctx.beginPath();
-            ctx.arc(4, 4, 6, 0, Math.PI * 2);
+            ctx.arc(5, 5, 6, 0, Math.PI*2);
             ctx.stroke();
+            
+            // Ojos en el caparazón
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(-3, -3, 3, 0, Math.PI*2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(3, 3, 3, 0, Math.PI*2);
+            ctx.fill();
         } else {
-            // Cuerpo de tortuga
             ctx.scale(this.facingRight ? 1 : -1, 1);
             
             // Cabeza
-            ctx.fillStyle = '#8FBC8F';
+            ctx.fillStyle = '#8BC34A';
             ctx.beginPath();
-            ctx.arc(0, -6, 10, 0, Math.PI * 2);
+            ctx.arc(0, -8, 12, 0, Math.PI*2);
             ctx.fill();
             ctx.stroke();
             
             // Ojos
-            ctx.fillStyle = '#000';
-            ctx.fillRect(4, -10, 3, 4);
-            ctx.fillRect(-7, -10, 3, 4);
-            
-            // Caparazón
-            ctx.fillStyle = '#2E8B57';
+            ctx.fillStyle = '#fff';
             ctx.beginPath();
-            ctx.ellipse(0, 4, 12, 10, 0, 0, Math.PI * 2);
+            ctx.arc(5, -11, 4, 0, Math.PI*2);
             ctx.fill();
-            ctx.strokeStyle = '#1a4f33';
-            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(-5, -11, 4, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.fillRect(6, -12, 2, 3);
+            ctx.fillRect(-8, -12, 2, 3);
+            
+            // Sonrisa
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(0, -5, 5, 0.1, Math.PI - 0.1);
             ctx.stroke();
             
-            // Patas que caminan
-            ctx.fillStyle = '#8FBC8F';
-            let legOffset = Math.sin(this.walkCycle) * 3;
-            ctx.fillRect(-10, 10 + legOffset, 4, 6);
-            ctx.fillRect(6, 10 - legOffset, 4, 6);
+            // Caparazón
+            let grad = ctx.createRadialGradient(-3, 2, 2, 0, 4, 14);
+            grad.addColorStop(0, '#4CAF50');
+            grad.addColorStop(0.6, '#2E7D32');
+            grad.addColorStop(1, '#1B5E20');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.ellipse(0, 6, 13, 11, 0, 0, Math.PI*2);
+            ctx.fill();
+            ctx.stroke();
+            
+            // Patas
+            ctx.fillStyle = '#8BC34A';
+            let legOff = Math.sin(this.walkCycle) * 4;
+            ctx.fillRect(-10, 12 + legOff, 5, 8);
+            ctx.fillRect(5, 12 - legOff, 5, 8);
+            ctx.strokeRect(-10, 12 + legOff, 5, 8);
+            ctx.strokeRect(5, 12 - legOff, 5, 8);
         }
 
         ctx.restore();
@@ -350,41 +359,40 @@ class Koopa {
         if (showDebug) {
             ctx.strokeStyle = '#ff00ff';
             ctx.lineWidth = 1;
-            ctx.strokeRect(drawX, this.y, this.width, this.height);
+            ctx.strokeRect(dx, this.y, this.w, this.h);
         }
     }
 }
 
-// --- CLASE JUGADOR ---
+// ========== CLASE JUGADOR ==========
 class Player {
     constructor() {
-        this.x = 100;
-        this.y = 300;
-        this.width = 24;
-        this.height = 38;
+        this.x = 80;
+        this.y = 350;
+        this.w = 26;
+        this.h = 40;
         this.vx = 0;
         this.vy = 0;
-        this.speed = 4.5;
-        this.gravity = 0.5;
-        this.jumpForce = -11.5;
+        this.speed = 4.8;
+        this.gravity = 0.55;
+        this.jumpForce = -12;
         this.isGrounded = false;
         this.lives = 3;
-        
         this.facingRight = true;
-        this.visualScaleX = 1;
+        this.scaleX = 1;
         this.walkCycle = 0;
         this.bobbing = 0;
         this.armAngle = 0;
         this.legAngle = 0;
-        
         this.coyoteCounter = 0;
-        this.maxCoyoteFrames = 8;
+        this.maxCoyote = 7;
         this.isMoving = false;
+        this.invincible = 0;
     }
 
-    resetPosition() {
-        this.x = 100;
-        this.y = 300;
+    reset() {
+        this.x = 80;
+        this.y = 350;
         this.vx = 0;
         this.vy = 0;
         this.isGrounded = false;
@@ -392,40 +400,40 @@ class Player {
     }
 
     update() {
-        let moveIntent = 0;
-        if (keys['ArrowRight'] || keys['KeyD']) moveIntent += 1;
-        if (keys['ArrowLeft'] || keys['KeyA']) moveIntent -= 1;
+        let move = 0;
+        if (keys['ArrowRight'] || keys['KeyD']) move = 1;
+        if (keys['ArrowLeft'] || keys['KeyA']) move = -1;
 
-        this.vx = moveIntent * this.speed;
+        this.vx = move * this.speed;
         this.isMoving = Math.abs(this.vx) > 0;
 
         if (this.vx > 0) this.facingRight = true;
         if (this.vx < 0) this.facingRight = false;
+        this.scaleX += ((this.facingRight ? 1 : -1) - this.scaleX) * 0.2;
 
-        let targetScale = this.facingRight ? 1 : -1;
-        this.visualScaleX += (targetScale - this.visualScaleX) * 0.25;
-
-        // ANIMACIÓN DE CAMINAR MEJORADA
+        // Animación
         if (this.isMoving && this.isGrounded) {
             this.walkCycle += 0.2;
-            this.bobbing = Math.abs(Math.sin(this.walkCycle)) * 3;
-            this.legAngle = Math.sin(this.walkCycle) * 0.6;
-            this.armAngle = Math.sin(this.walkCycle + 0.5) * 0.4;
+            this.bobbing = Math.abs(Math.sin(this.walkCycle)) * 3.5;
+            this.legAngle = Math.sin(this.walkCycle) * 0.7;
+            this.armAngle = Math.sin(this.walkCycle + 0.5) * 0.5;
         } else {
-            this.bobbing = 0;
+            this.bobbing *= 0.9;
             this.legAngle *= 0.9;
             this.armAngle *= 0.9;
         }
 
+        // Gravedad
         if (!this.isGrounded) {
             this.vy += this.gravity;
-            if (this.vy > 12) this.vy = 12;
+            if (this.vy > 13) this.vy = 13;
             this.coyoteCounter--;
         } else {
             this.vy = 0;
-            this.coyoteCounter = this.maxCoyoteFrames;
+            this.coyoteCounter = this.maxCoyote;
         }
 
+        // Salto
         if (keys['ArrowUp'] || keys['KeyW'] || keys['Space']) {
             if (this.coyoteCounter > 0) {
                 this.vy = this.jumpForce;
@@ -438,293 +446,388 @@ class Player {
         this.y += this.vy;
 
         if (this.x < 0) this.x = 0;
-        if (this.x > levelWidth - this.width) this.x = levelWidth - this.width;
-        if (this.y > canvas.height + 50) {
-            this.handleDeath();
-        }
+        if (this.x > levelWidth - this.w) this.x = levelWidth - this.w;
+        if (this.y > H + 100) this.die();
+
+        if (this.invincible > 0) this.invincible--;
     }
 
-    handleDeath() {
+    die() {
         this.lives--;
         updateUI();
         if (this.lives <= 0) {
-            startTransition("¡GAME OVER!\nReiniciando aventura...", () => {
+            gameState = 'transition';
+            transitionTimer = 0;
+            setTimeout(() => {
                 currentLevel = 1;
                 totalCoins = 0;
                 this.lives = 3;
-                loadLevel(currentLevel);
-            });
+                loadLevel(1);
+                gameState = 'playing';
+            }, 1500);
         } else {
-            startTransition("¡Perdiste una vida!", () => {
-                this.resetPosition();
-                cameraX = 0;
-            });
+            this.reset();
+            cameraX = 0;
         }
     }
 
     draw() {
         ctx.save();
         
-        // --- SOMBRA CORREGIDA (debajo del jugador) ---
-        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+        // Sombra (corregida)
+        let shadowAlpha = this.isGrounded ? 0.3 : 0.15;
+        let shadowSize = this.isGrounded ? 16 : 20;
+        ctx.fillStyle = `rgba(0,0,0,${shadowAlpha})`;
         ctx.beginPath();
-        ctx.ellipse(this.x + this.width/2 - cameraX, this.y + this.height + 2, 16, 5, 0, 0, 0, Math.PI * 2);
+        ctx.ellipse(this.x + this.w/2 - cameraX, this.y + this.h + 2, shadowSize, 5, 0, 0, 0, Math.PI*2);
         ctx.fill();
-        
-        // Sombra más sutil si está en el aire
-        if (!this.isGrounded) {
-            ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
-            ctx.beginPath();
-            ctx.ellipse(this.x + this.width/2 - cameraX, this.y + this.height + 6, 20, 4, 0, 0, 0, Math.PI * 2);
-            ctx.fill();
+
+        if (this.invincible > 0 && Math.floor(this.invincible / 4) % 2 === 0) {
+            ctx.globalAlpha = 0.5;
         }
 
-        ctx.translate(this.x + this.width / 2 - cameraX, this.y + this.height / 2);
+        ctx.translate(this.x + this.w/2 - cameraX, this.y + this.h/2);
         
-        let squashY = 1;
-        if (!this.isGrounded) {
-            squashY = this.vy < 0 ? 1.08 : 0.92;
-        }
-        ctx.scale(this.visualScaleX, squashY);
+        let squash = this.isGrounded ? 1 : (this.vy < 0 ? 1.05 : 0.93);
+        ctx.scale(this.scaleX, squash);
         ctx.translate(0, -this.bobbing);
 
-        ctx.strokeStyle = '#000000';
+        ctx.strokeStyle = '#1a1a2e';
         ctx.lineWidth = 2.5;
         ctx.lineJoin = 'round';
 
-        // --- CUERPO PRINCIPAL ---
-        
-        // Gorra
-        ctx.fillStyle = '#ff4d4d';
+        // === GORRA ===
+        ctx.fillStyle = '#e53935';
         ctx.beginPath();
-        ctx.rect(-10, -22, 20, 7);
+        ctx.ellipse(0, -20, 13, 6, 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillRect(-14, -22, 28, 6);
+        
+        // Visera
+        ctx.fillStyle = '#c62828';
+        ctx.fillRect(0, -18, 14, 3);
+
+        // === CARA ===
+        ctx.fillStyle = '#FFD54F';
+        ctx.beginPath();
+        ctx.ellipse(0, -12, 10, 9, 0, 0, Math.PI*2);
         ctx.fill();
         ctx.stroke();
 
-        // Cara
-        ctx.fillStyle = '#ffcc99';
+        // Ojos
+        ctx.fillStyle = '#fff';
         ctx.beginPath();
-        ctx.rect(-8, -15, 16, 11);
+        ctx.arc(4, -15, 4, 0, Math.PI*2);
         ctx.fill();
-        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(-4, -15, 4, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(5, -16, 2, 3);
+        ctx.fillRect(-7, -16, 2, 3);
 
         // Bigote
         ctx.fillStyle = '#4a2711';
-        ctx.fillRect(2, -11, 5, 3);
-        
-        // Ojo
-        ctx.fillStyle = '#000';
-        ctx.fillRect(3, -14, 2, 3);
+        ctx.fillRect(0, -11, 8, 3);
+        ctx.fillRect(-8, -11, 8, 3);
 
-        // Camisa
-        ctx.fillStyle = '#ff4d4d';
-        ctx.beginPath();
-        ctx.rect(-8, -4, 16, 12);
-        ctx.fill();
-        ctx.stroke();
+        // === CUERPO ===
+        ctx.fillStyle = '#e53935';
+        ctx.fillRect(-9, -3, 18, 13);
+        ctx.strokeRect(-9, -3, 18, 13);
 
         // Overol
-        ctx.fillStyle = '#2e5cb8';
-        ctx.beginPath();
-        ctx.rect(-7, 2, 14, 10);
-        ctx.fill();
-        ctx.stroke();
-
-        // Botón
-        ctx.fillStyle = '#ffcc00';
-        ctx.fillRect(2, 3, 2, 2);
-
-        // --- BRAZOS CON ANIMACIÓN ---
-        ctx.fillStyle = '#ffcc99';
-        ctx.save();
-        ctx.translate(-8, -2);
-        ctx.rotate(this.armAngle);
-        ctx.fillRect(-2, 0, 4, 10);
-        ctx.strokeRect(-2, 0, 4, 10);
-        ctx.restore();
-
-        ctx.save();
-        ctx.translate(8, -2);
-        ctx.rotate(-this.armAngle);
-        ctx.fillRect(-2, 0, 4, 10);
-        ctx.strokeRect(-2, 0, 4, 10);
-        ctx.restore();
-
-        // --- PIERNAS CON ANIMACIÓN ---
-        ctx.fillStyle = '#2e5cb8';
+        ctx.fillStyle = '#1565C0';
+        ctx.fillRect(-8, 4, 16, 11);
+        ctx.strokeRect(-8, 4, 16, 11);
         
-        // Pierna izquierda
+        // Botones
+        ctx.fillStyle = '#FDD835';
+        ctx.beginPath();
+        ctx.arc(-3, 6, 2.5, 0, Math.PI*2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(3, 6, 2.5, 0, Math.PI*2);
+        ctx.fill();
+
+        // === BRAZOS ===
+        ctx.fillStyle = '#FFD54F';
         ctx.save();
-        ctx.translate(-4, 10);
-        ctx.rotate(this.legAngle);
-        ctx.fillRect(-2, 0, 5, 12);
-        ctx.strokeRect(-2, 0, 5, 12);
+        ctx.translate(-10, -1);
+        ctx.rotate(this.armAngle);
+        ctx.fillRect(-2, 0, 4, 12);
+        ctx.strokeRect(-2, 0, 4, 12);
         ctx.restore();
 
-        // Pierna derecha
         ctx.save();
-        ctx.translate(4, 10);
+        ctx.translate(10, -1);
+        ctx.rotate(-this.armAngle);
+        ctx.fillRect(-2, 0, 4, 12);
+        ctx.strokeRect(-2, 0, 4, 12);
+        ctx.restore();
+
+        // === PIERNAS ===
+        ctx.fillStyle = '#1565C0';
+        ctx.save();
+        ctx.translate(-4, 12);
+        ctx.rotate(this.legAngle);
+        ctx.fillRect(-3, 0, 6, 12);
+        ctx.strokeRect(-3, 0, 6, 12);
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(4, 12);
         ctx.rotate(-this.legAngle);
-        ctx.fillRect(-3, 0, 5, 12);
-        ctx.strokeRect(-3, 0, 5, 12);
+        ctx.fillRect(-3, 0, 6, 12);
+        ctx.strokeRect(-3, 0, 6, 12);
         ctx.restore();
 
         // Zapatos
-        ctx.fillStyle = '#8B4513';
-        ctx.fillRect(-6, 20, 6, 4);
-        ctx.fillRect(2, 20, 6, 4);
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(-6, 20, 6, 4);
-        ctx.strokeRect(2, 20, 6, 4);
+        ctx.fillStyle = '#6D4C41';
+        ctx.fillRect(-7, 22, 7, 5);
+        ctx.fillRect(0, 22, 7, 5);
+        ctx.strokeRect(-7, 22, 7, 5);
+        ctx.strokeRect(0, 22, 7, 5);
 
         ctx.restore();
 
         if (showDebug) {
             ctx.strokeStyle = '#00ffff';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(this.x - cameraX, this.y, this.width, this.height);
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(this.x - cameraX, this.y, this.w, this.h);
         }
     }
 }
 
-// --- ELEMENTOS DEL MAPA ---
+// ========== CLASE ENEMIGO GOOMBA ==========
+class Goomba {
+    constructor(x, y, minX, maxX) {
+        this.x = x;
+        this.y = y;
+        this.w = 28;
+        this.h = 28;
+        this.vx = 1;
+        this.minX = minX;
+        this.maxX = maxX;
+        this.walkCycle = Math.random() * 10;
+        this.alive = true;
+    }
+
+    update() {
+        if (!this.alive) return;
+        this.x += this.vx;
+        this.walkCycle += 0.1;
+
+        if (this.x <= this.minX) { this.x = this.minX; this.vx = Math.abs(this.vx); }
+        if (this.x + this.w >= this.maxX) { this.x = this.maxX - this.w; this.vx = -Math.abs(this.vx); }
+    }
+
+    draw() {
+        if (!this.alive) return;
+        let dx = this.x - cameraX;
+        if (dx > W + 50 || dx + this.w < -50) return;
+
+        ctx.save();
+        ctx.translate(dx + this.w/2, this.y + this.h/2);
+        let bob = Math.sin(this.walkCycle) * 2;
+        
+        // Sombra
+        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        ctx.beginPath();
+        ctx.ellipse(0, this.h/2 + 3, 12, 3, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        // Cuerpo
+        ctx.fillStyle = '#8D6E63';
+        ctx.beginPath();
+        ctx.ellipse(0, -4 + bob, 14, 12, 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Ojos enojados
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(-5, -8 + bob, 5, 0, Math.PI*2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(5, -8 + bob, 5, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = '#1a1a2e';
+        let eyeDir = this.vx > 0 ? 1 : -1;
+        ctx.fillRect(-5 + eyeDir*2, -10 + bob, 2, 4);
+        ctx.fillRect(5 + eyeDir*2, -10 + bob, 2, 4);
+        
+        // Cejas enojadas
+        ctx.strokeStyle = '#1a1a2e';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-9, -13 + bob);
+        ctx.lineTo(-2, -11 + bob);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(9, -13 + bob);
+        ctx.lineTo(2, -11 + bob);
+        ctx.stroke();
+
+        // Boca
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(-4, -2 + bob, 8, 2);
+
+        ctx.restore();
+
+        if (showDebug) {
+            ctx.strokeStyle = '#ff00ff';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(dx, this.y, this.w, this.h);
+        }
+    }
+}
+
+// ========== ELEMENTOS DEL JUEGO ==========
 let platforms = [];
 let coins = [];
-let enemies = [];
 let breakableBlocks = [];
 let koopas = [];
-let goalFlag = { x: 0, y: 0, width: 20, height: 160 };
+let goombas = [];
+let goalFlag = { x: 0, y: 0, w: 24, h: 180 };
+let castle = { x: 0, y: 0, w: 120, h: 140 };
 const player = new Player();
 
-// --- GENERADOR DE NIVELES (MUNDO FIJO POR NIVEL) ---
-function loadLevel(levelNum) {
+// ========== CARGAR NIVEL ==========
+function loadLevel(level) {
     platforms = [];
     coins = [];
-    enemies = [];
     breakableBlocks = [];
     koopas = [];
+    goombas = [];
+    castleScreen = false;
+    gameState = 'playing';
     
-    levelWidth = 1500 + levelNum * 300;
-    player.resetPosition();
+    levelWidth = 1800 + level * 350;
+    player.reset();
     cameraX = 0;
 
-    // Suelo inicial (siempre igual para todos los niveles)
-    platforms.push({ x: 0, y: 380, width: 350, height: 100 });
+    // Suelo inicial
+    platforms.push({ x: 0, y: 420, w: 350, h: 80 });
+    platforms.push({ x: 0, y: 450, w: levelWidth + 400, h: 50 });
 
     let currentX = 350;
-    let currentY = 380;
-    let blockId = 0;
-
-    // Usamos el nivel como semilla para generar siempre el mismo mundo
-    // pero diferente para cada nivel
-    const seed = levelNum * 137 + 42;
-    let pseudoRandom = (seed) => {
-        let s = seed;
+    let currentY = 420;
+    
+    // Usamos el nivel como semilla
+    const seed = level * 137 + 42;
+    let rand = (function(s) {
         return function() {
             s = (s * 9301 + 49297) % 233280;
             return s / 233280;
         };
-    };
-    const rand = pseudoRandom(levelNum * 777 + 123);
+    })(level * 777 + 123);
 
-    while (currentX < levelWidth - 300) {
+    while (currentX < levelWidth - 350) {
         let r = rand();
 
-        if (r < 0.30) {
-            // Plataforma continua con bloques rompibles
-            let w = 140 + rand() * 100;
-            platforms.push({ x: currentX, y: currentY, width: w, height: 100 });
+        if (r < 0.25) {
+            // Plataforma con bloques
+            let w = 120 + rand() * 120;
+            platforms.push({ x: currentX, y: currentY, w: w, h: 80 });
             
-            // Bloques rompibles sobre la plataforma
-            let numBlocks = Math.floor(w / 50);
+            let numBlocks = Math.floor(w / 45);
             for (let i = 0; i < numBlocks; i++) {
-                let bx = currentX + 20 + i * 45;
-                let by = currentY - 50;
+                let bx = currentX + 15 + i * 40;
+                let by = currentY - 45;
                 breakableBlocks.push(new BreakableBlock(bx, by));
             }
             
-            spawnCoinsOnPlatform(currentX, currentY, w);
+            spawnCoins(currentX, currentY, w);
             currentX += w;
 
-        } else if (r < 0.55) {
-            // Tubería con bloques
-            let pipeHeight = 40 + rand() * 30;
-            let pipeWidth = 40;
-            platforms.push({ x: currentX, y: currentY, width: 100, height: 100 });
-            platforms.push({ x: currentX + 30, y: currentY - pipeHeight, width: pipeWidth, height: pipeHeight + 100 });
+        } else if (r < 0.45) {
+            // Tubería
+            let ph = 35 + rand() * 35;
+            let pw = 45;
+            platforms.push({ x: currentX, y: currentY, w: 100, h: 80 });
+            platforms.push({ x: currentX + 27, y: currentY - ph, w: pw, h: ph + 80 });
             
-            // Bloque sobre la tubería
-            breakableBlocks.push(new BreakableBlock(currentX + 35, currentY - pipeHeight - 40));
+            // Bloque arriba
+            if (level > 2) {
+                breakableBlocks.push(new BreakableBlock(currentX + 34, currentY - ph - 45));
+            }
             currentX += 100;
 
-        } else if (r < 0.75) {
-            // Foso con plataforma y tortugas
-            let pitWidth = 110 + rand() * 60;
+        } else if (r < 0.65) {
+            // Foso con plataforma
+            let pitW = 100 + rand() * 60;
             let nextY = currentY + (rand() * 80 - 40);
-            if (nextY > 400) nextY = 400;
-            if (nextY < 220) nextY = 220;
+            nextY = Math.max(340, Math.min(440, nextY));
 
             let platW = 55;
-            let platX = currentX + (pitWidth / 2) - (platW / 2);
+            let platX = currentX + pitW/2 - platW/2;
             let platY = Math.min(currentY, nextY) - 25;
 
-            platforms.push({ x: platX, y: platY, width: platW, height: 15 });
-            coins.push({ x: platX + platW/2 - 10, y: platY - 35, width: 18, height: 18, collected: false });
+            platforms.push({ x: platX, y: platY, w: platW, h: 15 });
+            coins.push({ x: platX + platW/2 - 10, y: platY - 35, w: 18, h: 18, collected: false });
 
-            // Tortuga en la plataforma flotante
-            if (levelNum > 2) {
-                koopas.push(new Koopa(platX + 10, platY - 30, platX, platX + platW - 28));
+            if (level > 3) {
+                koopas.push(new Koopa(platX + 5, platY - 32, platX, platX + platW - 30));
             }
 
-            let nextSectionWidth = 130 + rand() * 80;
-            platforms.push({ x: currentX + pitWidth, y: nextY, width: nextSectionWidth, height: 100 });
-            
+            let nextW = 120 + rand() * 80;
+            platforms.push({ x: currentX + pitW, y: nextY, w: nextW, h: 80 });
             currentY = nextY;
-            currentX += pitWidth + nextSectionWidth;
+            currentX += pitW + nextW;
 
         } else {
-            // Zona con tortugas y bloques
-            let w = 160 + rand() * 100;
-            platforms.push({ x: currentX, y: currentY, width: w, height: 100 });
+            // Zona con enemigos
+            let w = 140 + rand() * 120;
+            platforms.push({ x: currentX, y: currentY, w: w, h: 80 });
             
-            // Bloques rompibles
+            // Bloques
             for (let i = 0; i < 3; i++) {
-                let bx = currentX + 30 + i * 50;
-                let by = currentY - 50 - (i % 2) * 40;
+                let bx = currentX + 30 + i * 40;
+                let by = currentY - 45 - (i % 2) * 35;
                 breakableBlocks.push(new BreakableBlock(bx, by));
             }
             
-            // Tortugas patrullando
-            if (levelNum > 1) {
-                let numKoopas = Math.floor(levelNum / 2) + 1;
-                for (let i = 0; i < Math.min(numKoopas, 3); i++) {
-                    let kx = currentX + 30 + i * 60;
-                    koopas.push(new Koopa(kx, currentY - 30, currentX, currentX + w - 28));
-                }
+            // Goombas
+            let numGoombas = Math.min(Math.floor(level / 2) + 1, 4);
+            for (let i = 0; i < numGoombas; i++) {
+                let gx = currentX + 30 + i * 50;
+                goombas.push(new Goomba(gx, currentY - 28, currentX, currentX + w - 28));
             }
             
-            spawnCoinsOnPlatform(currentX, currentY, w);
+            // Koopas (niveles más altos)
+            if (level > 4) {
+                koopas.push(new Koopa(currentX + 60, currentY - 32, currentX, currentX + w - 30));
+            }
+            
+            spawnCoins(currentX, currentY, w);
             currentX += w;
         }
     }
 
-    // Meta siempre visible
-    platforms.push({ x: currentX, y: 380, width: 300, height: 100 });
-    goalFlag.x = currentX + 120;
-    goalFlag.y = 380 - goalFlag.height;
+    // Zona final con castillo
+    platforms.push({ x: currentX, y: 420, w: 400, h: 80 });
+    
+    // Bandera
+    goalFlag.x = currentX + 80;
+    goalFlag.y = 420 - goalFlag.h;
+    
+    // Castillo (visible desde lejos)
+    castle.x = currentX + 220;
+    castle.y = 420 - castle.h;
 
     updateUI();
 }
 
-function spawnCoinsOnPlatform(x, y, width) {
-    let count = Math.floor(width / 55);
+function spawnCoins(x, y, width) {
+    let count = Math.floor(width / 50);
     for (let i = 0; i < count; i++) {
         coins.push({
-            x: x + 25 + (i * 45),
+            x: x + 20 + i * 42,
             y: y - 35,
-            width: 16,
-            height: 16,
+            w: 16,
+            h: 16,
             collected: false
         });
     }
@@ -736,291 +839,369 @@ function updateUI() {
     document.getElementById('lbl-lives').textContent = player.lives;
 }
 
-// --- TRANSICIONES ---
-function startTransition(text, callback) {
-    isTransitioning = true;
-    transitionText = text;
-    transitionAlpha = 0;
-    transitionPhase = 0;
-    transitionCallback = callback;
+// ========== COLISIONES ==========
+function rectCollide(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x &&
+           a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
-function updateTransition() {
-    if (!isTransitioning) return;
-
-    if (transitionPhase === 0) {
-        transitionAlpha += 0.04;
-        if (transitionAlpha >= 1) {
-            transitionAlpha = 1;
-            transitionPhase = 1;
-            if (transitionCallback) {
-                transitionCallback();
-                transitionCallback = null;
-            }
-        }
-    } else if (transitionPhase === 1) {
-        transitionPhase = 2;
-    } else if (transitionPhase === 2) {
-        transitionAlpha -= 0.04;
-        if (transitionAlpha <= 0) {
-            transitionAlpha = 0;
-            isTransitioning = false;
-            transitionPhase = 0;
-        }
-    }
+function getPlayerRect() {
+    return { x: player.x, y: player.y, w: player.w, h: player.h };
 }
 
-function checkCollision(r1, r2) {
-    return r1.x < r2.x + r2.width &&
-           r1.x + r1.width > r2.x &&
-           r1.y < r2.y + r2.height &&
-           r1.y + r1.height > r2.y;
+// ========== DIBUJAR CASTILLO ==========
+function drawCastle() {
+    let dx = castle.x - cameraX;
+    if (dx > W + 50 || dx + castle.w < -50) return;
+    
+    // Cuerpo del castillo
+    ctx.fillStyle = '#8D6E63';
+    ctx.fillRect(dx + 10, castle.y + 30, castle.w - 20, castle.h - 30);
+    
+    // Torres
+    ctx.fillStyle = '#6D4C41';
+    ctx.fillRect(dx, castle.y, 20, 50);
+    ctx.fillRect(dx + castle.w - 20, castle.y, 20, 50);
+    
+    // Techos de torres
+    ctx.fillStyle = '#C62828';
+    ctx.beginPath();
+    ctx.moveTo(dx, castle.y + 10);
+    ctx.lineTo(dx + 10, castle.y - 10);
+    ctx.lineTo(dx + 20, castle.y + 10);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(dx + castle.w - 20, castle.y + 10);
+    ctx.lineTo(dx + castle.w - 10, castle.y - 10);
+    ctx.lineTo(dx + castle.w, castle.y + 10);
+    ctx.fill();
+    
+    // Puerta
+    ctx.fillStyle = '#4E342E';
+    ctx.beginPath();
+    ctx.arc(dx + castle.w/2, castle.y + castle.h - 10, 15, 0, Math.PI);
+    ctx.fill();
+    
+    // Ventanas
+    ctx.fillStyle = '#FFD54F';
+    ctx.fillRect(dx + 30, castle.y + 50, 12, 12);
+    ctx.fillRect(dx + castle.w - 42, castle.y + 50, 12, 12);
+    ctx.fillRect(dx + castle.w/2 - 6, castle.y + 60, 12, 12);
+    
+    // Bandera en el castillo
+    ctx.fillStyle = '#5D4037';
+    ctx.fillRect(dx + castle.w/2 - 2, castle.y - 5, 4, 15);
+    ctx.fillStyle = '#F44336';
+    ctx.beginPath();
+    ctx.moveTo(dx + castle.w/2 + 2, castle.y - 5);
+    ctx.lineTo(dx + castle.w/2 + 25, castle.y + 2);
+    ctx.lineTo(dx + castle.w/2 + 2, castle.y + 10);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px Arial';
+    ctx.fillText('★', dx + castle.w/2 + 10, castle.y + 6);
 }
 
-// --- DIBUJADO ---
-function drawGame() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Plataformas
-    for (let plat of platforms) {
-        let drawX = plat.x - cameraX;
-        if (drawX > canvas.width || drawX + plat.width < 0) continue;
-
-        ctx.fillStyle = '#8B7355';
-        ctx.fillRect(drawX, plat.y, plat.width, plat.height);
-        ctx.strokeStyle = '#5D4037';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(drawX, plat.y, plat.width, plat.height);
-    }
-
-    // Bloques rompibles
-    for (let block of breakableBlocks) {
-        block.update();
-        block.draw();
-    }
-
-    // Monedas
-    for (let coin of coins) {
-        if (coin.collected) continue;
-        let drawX = coin.x - cameraX;
-        if (drawX > canvas.width || drawX + coin.width < 0) continue;
-
-        ctx.fillStyle = '#FFD700';
-        ctx.shadowColor = 'rgba(255, 215, 0, 0.5)';
-        ctx.shadowBlur = 15;
-        ctx.beginPath();
-        ctx.ellipse(drawX + 8, coin.y + 8, 8, 8, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#DAA520';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#FFF8DC';
-        ctx.beginPath();
-        ctx.ellipse(drawX + 5, coin.y + 5, 3, 3, 0, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    // Tortugas
-    for (let koopa of koopas) {
-        koopa.update();
-        koopa.draw();
-    }
-
-    // Enemigos (Goombas)
-    for (let enemy of enemies) {
-        enemy.draw();
-    }
-
+// ========== DIBUJAR BANDERA ==========
+function drawFlag() {
+    let dx = goalFlag.x - cameraX;
+    if (dx > W + 50 || dx + goalFlag.w < -50) return;
+    
+    // Poste
+    ctx.fillStyle = '#5D4037';
+    ctx.fillRect(dx + 10, goalFlag.y, 4, goalFlag.h);
+    
+    // Esfera
+    ctx.fillStyle = '#FDD835';
+    ctx.beginPath();
+    ctx.arc(dx + 12, goalFlag.y, 6, 0, Math.PI*2);
+    ctx.fill();
+    
     // Bandera
-    let flagDrawX = goalFlag.x - cameraX;
-    if (flagDrawX > -20 && flagDrawX < canvas.width + 20) {
-        ctx.fillStyle = '#8B4513';
-        ctx.fillRect(flagDrawX + 8, goalFlag.y, 4, goalFlag.height);
-        
-        ctx.fillStyle = '#FF4500';
-        ctx.shadowBlur = 8;
-        ctx.shadowColor = 'rgba(255, 69, 0, 0.4)';
-        ctx.beginPath();
-        ctx.moveTo(flagDrawX + 12, goalFlag.y + 10);
-        ctx.lineTo(flagDrawX + 50, goalFlag.y + 30);
-        ctx.lineTo(flagDrawX + 12, goalFlag.y + 50);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = '#CC0000';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#FFD700';
-        ctx.font = '20px Arial';
-        ctx.fillText('★', flagDrawX + 20, goalFlag.y + 38);
-    }
-
-    player.draw();
-
-    if (isTransitioning) {
-        ctx.fillStyle = `rgba(0, 0, 0, ${transitionAlpha * 0.8})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        if (transitionAlpha > 0.1 && transitionText) {
-            ctx.fillStyle = '#FFFFFF';
-            ctx.font = 'bold 32px Arial';
-            ctx.textAlign = 'center';
-            ctx.shadowColor = 'rgba(0,0,0,0.8)';
-            ctx.shadowBlur = 10;
-            const lines = transitionText.split('\n');
-            lines.forEach((line, index) => {
-                ctx.fillText(line, canvas.width/2, canvas.height/2 - 20 + index * 40);
-            });
-            ctx.shadowBlur = 0;
-        }
-    }
+    let wave = Math.sin(Date.now() / 500) * 3;
+    ctx.fillStyle = '#43A047';
+    ctx.beginPath();
+    ctx.moveTo(dx + 14, goalFlag.y + 15);
+    ctx.quadraticCurveTo(dx + 45 + wave, goalFlag.y + 25, dx + 14, goalFlag.y + 45);
+    ctx.fill();
+    ctx.strokeStyle = '#2E7D32';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    
+    // Estrella
+    ctx.fillStyle = '#fff';
+    ctx.font = '18px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('★', dx + 30 + wave/2, goalFlag.y + 35);
 }
 
-// --- BUCLE PRINCIPAL ---
+// ========== BUCLE PRINCIPAL ==========
 function gameLoop() {
-    if (!isTransitioning) {
+    if (gameState === 'playing') {
+        // Actualizar
         player.update();
 
-        let targetCamX = player.x - canvas.width / 3;
-        cameraX += (targetCamX - cameraX) * 0.1;
-        if (cameraX < 0) cameraX = 0;
-        if (cameraX > levelWidth - canvas.width) cameraX = levelWidth - canvas.width;
+        // Cámara
+        let targetCam = player.x - W * 0.35;
+        cameraX += (targetCam - cameraX) * 0.08;
+        cameraX = Math.max(0, Math.min(levelWidth - W, cameraX));
 
         // Colisiones con plataformas
         player.isGrounded = false;
-        for (let plat of platforms) {
-            if (checkCollision(player, plat)) {
-                if (player.vy > 0 && (player.y + player.height - player.vy) <= plat.y + 4) {
-                    player.y = plat.y - player.height;
+        for (let p of platforms) {
+            if (rectCollide(player, p)) {
+                if (player.vy > 0 && player.y + player.h - player.vy <= p.y + 5) {
+                    player.y = p.y - player.h;
                     player.isGrounded = true;
                     player.vy = 0;
-                }
-                else if (player.vx > 0 && (player.x + player.width - player.vx) <= plat.x) {
-                    player.x = plat.x - player.width;
-                }
-                else if (player.vx < 0 && (player.x - player.vx) >= plat.x + plat.width) {
-                    player.x = plat.x + plat.width;
+                } else if (player.vx > 0 && player.x + player.w - player.vx <= p.x) {
+                    player.x = p.x - player.w;
+                } else if (player.vx < 0 && player.x - player.vx >= p.x + p.w) {
+                    player.x = p.x + p.w;
                 }
             }
         }
 
-        // Colisiones con bloques rompibles
-        for (let block of breakableBlocks) {
-            if (block.broken) continue;
-            if (checkCollision(player, block)) {
-                // Golpe desde abajo (saltando)
-                if (player.vy < 0 && player.y - player.vy >= block.y + block.height - 2) {
-                    if (block.hitFromBelow()) {
-                        // El bloque se rompió
-                        totalCoins += 3;
+        // Bloques rompibles
+        for (let b of breakableBlocks) {
+            b.update();
+            if (b.broken) continue;
+            if (rectCollide(player, b)) {
+                if (player.vy < 0 && player.y - player.vy >= b.y + b.h - 2) {
+                    if (b.hit()) {
+                        totalCoins += 5;
                         updateUI();
                     }
-                    player.vy = 2; // Rebote pequeño
-                }
-                // Colisión lateral con bloque
-                else if (player.vx > 0 && player.x + player.width - player.vx <= block.x) {
-                    player.x = block.x - player.width;
-                }
-                else if (player.vx < 0 && player.x - player.vx >= block.x + block.width) {
-                    player.x = block.x + block.width;
-                }
-                // Caer sobre el bloque
-                else if (player.vy > 0 && player.y + player.height - player.vy <= block.y + 2) {
-                    player.y = block.y - player.height;
+                    player.vy = 2;
+                } else if (player.vx > 0 && player.x + player.w - player.vx <= b.x) {
+                    player.x = b.x - player.w;
+                } else if (player.vx < 0 && player.x - player.vx >= b.x + b.w) {
+                    player.x = b.x + b.w;
+                } else if (player.vy > 0 && player.y + player.h - player.vy <= b.y + 2) {
+                    player.y = b.y - player.h;
                     player.isGrounded = true;
                     player.vy = 0;
                 }
             }
         }
 
-        // Recolectar monedas
-        for (let coin of coins) {
-            if (!coin.collected && checkCollision(player, coin)) {
-                coin.collected = true;
-                totalCoins++;
+        // Monedas
+        for (let c of coins) {
+            if (!c.collected && rectCollide(player, c)) {
+                c.collected = true;
+                totalCoins += 1;
                 updateUI();
             }
         }
 
-        // Interacción con tortugas
-        for (let i = koopas.length - 1; i >= 0; i--) {
-            let koopa = koopas[i];
-            if (checkCollision(player, koopa)) {
-                if (player.vy > 0 && (player.y + player.height - player.vy) <= koopa.y + 8) {
-                    // Saltar sobre la tortuga
-                    if (!koopa.isShell) {
-                        koopa.kick(6 * (player.x < koopa.x ? -1 : 1));
-                        player.vy = player.jumpForce * 0.6;
-                    } else {
-                        // Patear caparazón
-                        if (Math.abs(koopa.shellSpeed) < 1) {
-                            koopa.shellSpeed = 8 * (player.x < koopa.x ? -1 : 1);
-                        } else {
-                            koopa.shellSpeed *= 1.2;
-                        }
-                        player.vy = player.jumpForce * 0.5;
-                    }
-                    totalCoins += 2;
-                    updateUI();
-                } else if (koopa.isShell && Math.abs(koopa.shellSpeed) > 2) {
-                    // Caparazón rápido mata al jugador
-                    player.handleDeath();
-                    break;
-                } else if (!koopa.isShell) {
-                    // Impacto lateral con tortuga viva
-                    player.handleDeath();
-                    break;
-                }
-            }
-        }
-
-        // Enemigos (Goombas)
-        for (let i = enemies.length - 1; i >= 0; i--) {
-            let enemy = enemies[i];
-            if (checkCollision(player, enemy)) {
-                if (player.vy > 0 && (player.y + player.height - player.vy) <= enemy.y + 8) {
-                    enemies.splice(i, 1);
-                    player.vy = player.jumpForce * 0.75;
+        // Goombas
+        for (let i = goombas.length - 1; i >= 0; i--) {
+            let g = goombas[i];
+            g.update();
+            if (rectCollide(player, g)) {
+                if (player.vy > 0 && player.y + player.h - player.vy <= g.y + 8) {
+                    goombas.splice(i, 1);
+                    player.vy = -8;
                     totalCoins += 2;
                     updateUI();
                 } else {
-                    player.handleDeath();
-                    break;
+                    player.die();
                 }
             }
         }
 
-        // Meta
-        if (checkCollision(player, goalFlag)) {
+        // Koopas
+        for (let i = koopas.length - 1; i >= 0; i--) {
+            let k = koopas[i];
+            k.update();
+            if (rectCollide(player, k)) {
+                if (player.vy > 0 && player.y + player.h - player.vy <= k.y + 8) {
+                    if (!k.isShell) {
+                        k.kick(7 * (player.x < k.x ? -1 : 1));
+                        player.vy = -7;
+                    } else {
+                        if (Math.abs(k.shellSpeed) < 1) {
+                            k.shellSpeed = 8 * (player.x < k.x ? -1 : 1);
+                        } else {
+                            k.shellSpeed *= 1.3;
+                        }
+                        player.vy = -6;
+                    }
+                    totalCoins += 2;
+                    updateUI();
+                } else if (k.isShell && Math.abs(k.shellSpeed) > 2) {
+                    player.die();
+                } else if (!k.isShell) {
+                    player.die();
+                }
+            }
+        }
+
+        // ¡BANDERA! → Transición al castillo
+        if (rectCollide(player, goalFlag)) {
+            gameState = 'castle';
+            castleTimer = 0;
+            player.vx = 0;
+            player.vy = 0;
+            // Reproducir efecto de victoria
+        }
+    }
+
+    // ===== ESTADO CASTILLO (TRANSICIÓN ESPECIAL) =====
+    if (gameState === 'castle') {
+        castleTimer++;
+        
+        // Animar cámara hacia el castillo
+        let targetCam = castle.x - W * 0.3;
+        cameraX += (targetCam - cameraX) * 0.05;
+        
+        // Después de 2 segundos, mostrar mensaje
+        if (castleTimer > 120 && castleTimer < 180) {
+            // Mostrar "NIVEL COMPLETADO"
+        }
+        
+        // Después de 3 segundos, cargar siguiente nivel o terminar
+        if (castleTimer > 240) {
             if (currentLevel < 10) {
-                startTransition(`¡NIVEL ${currentLevel} COMPLETADO!\nCargando siguiente mundo...`, () => {
+                gameState = 'transition';
+                setTimeout(() => {
                     currentLevel++;
                     loadLevel(currentLevel);
-                });
+                }, 1000);
             } else {
-                startTransition("¡FELICITACIONES!\nCompletaste los 10 niveles del juego.", () => {
+                gameState = 'transition';
+                setTimeout(() => {
                     currentLevel = 1;
                     totalCoins = 0;
                     player.lives = 3;
-                    loadLevel(currentLevel);
-                });
+                    loadLevel(1);
+                }, 2000);
             }
         }
     }
 
-    updateTransition();
-    drawGame();
+    // ===== DIBUJAR =====
+    ctx.clearRect(0, 0, W, H);
+    
+    // Cielo con gradiente
+    let grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#5C94FC');
+    grad.addColorStop(0.6, '#87CEEB');
+    grad.addColorStop(1, '#B5D8F7');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    
+    // Nubes
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    for (let i = 0; i < 5; i++) {
+        let cx = (i * 300 + 100 - cameraX * 0.3) % (W + 200) - 100;
+        let cy = 30 + i * 25 % 60;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 30, 0, Math.PI*2);
+        ctx.arc(cx + 30, cy - 10, 25, 0, Math.PI*2);
+        ctx.arc(cx + 60, cy, 30, 0, Math.PI*2);
+        ctx.fill();
+    }
+
+    // Plataformas
+    for (let p of platforms) {
+        let dx = p.x - cameraX;
+        if (dx > W + 10 || dx + p.w < -10) continue;
+        ctx.fillStyle = '#8D6E63';
+        ctx.fillRect(dx, p.y, p.w, p.h);
+        ctx.strokeStyle = '#5D4037';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(dx, p.y, p.w, p.h);
+        
+        // Textura de pasto
+        ctx.fillStyle = '#4CAF50';
+        ctx.fillRect(dx, p.y, p.w, 6);
+        ctx.fillStyle = '#388E3C';
+        for (let g = 0; g < p.w; g += 12) {
+            ctx.fillRect(dx + g, p.y - 3, 2, 6);
+        }
+    }
+
+    // Bloques
+    for (let b of breakableBlocks) b.draw();
+
+    // Monedas (con animación de brillo)
+    for (let c of coins) {
+        if (c.collected) continue;
+        let dx = c.x - cameraX;
+        if (dx > W + 20 || dx + c.w < -20) continue;
+        let shine = Math.sin(Date.now() / 300 + c.x) * 0.3 + 0.7;
+        ctx.fillStyle = `rgba(255, 215, 0, ${shine})`;
+        ctx.shadowColor = 'rgba(255, 215, 0, 0.6)';
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.ellipse(dx + c.w/2, c.y + c.h/2, c.w/2, c.h/2, 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#DAA520';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+    }
+
+    // Goombas
+    for (let g of goombas) g.draw();
+
+    // Koopas
+    for (let k of koopas) k.draw();
+
+    // Castillo (siempre visible al final)
+    drawCastle();
+
+    // Bandera
+    drawFlag();
+
+    // Jugador
+    player.draw();
+
+    // ===== UI DE TRANSICIÓN =====
+    if (gameState === 'castle' && castleTimer > 60) {
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(0, 0, W, H);
+        
+        ctx.fillStyle = '#FFD700';
+        ctx.font = 'bold 52px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.shadowBlur = 20;
+        ctx.fillText('🏰 ¡NIVEL COMPLETADO!', W/2, H/2 - 30);
+        
+        ctx.fillStyle = '#fff';
+        ctx.font = '28px Arial';
+        ctx.fillText(`⭐ ${totalCoins} monedas`, W/2, H/2 + 50);
+        ctx.shadowBlur = 0;
+    }
+
+    if (gameState === 'transition') {
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 40px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('⏳ Cargando...', W/2, H/2);
+    }
+
+    // Debug info
+    if (showDebug) {
+        ctx.fillStyle = '#fff';
+        ctx.font = '12px monospace';
+        ctx.fillText(`FPS: 60 | Nivel: ${currentLevel} | Coins: ${totalCoins}`, 10, 20);
+    }
+
     requestAnimationFrame(gameLoop);
 }
 
-// --- INICIAR ---
+// ========== INICIAR ==========
 loadLevel(1);
 gameLoop();
 
-console.log('🎮 ¡Juego con tortugas y bloques rompibles iniciado!');
+console.log('🎮 ¡Juego con CASTILLO y todas las mejoras activado!');
 </script>
 </body>
 </html>
