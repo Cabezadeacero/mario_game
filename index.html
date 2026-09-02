@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paper Mario Clone - 10 Niveles</title>
+    <title>Paper Mario Clone - Con Tortugas y Bloques</title>
     <style>
         body {
             margin: 0;
@@ -101,33 +101,27 @@
         <button id="btn-debug" onclick="toggleDebug()">Visualizar Colisiones: APAGADO</button>
         <div class="instructions">
             <strong>Controles:</strong> Flechas / A-D para Moverse. Flecha Arriba / W / Espacio para Saltar.<br>
-            Estilo <em>Paper Mario</em> con físicas elásticas (Coyote Time) y mapas 100% accesibles.
+            Golpea bloques desde abajo con salto. ¡Patea tortugas!
         </div>
     </div>
 
 <script>
-// ============================================================
-// CÓDIGO COMPLETO DEL JUEGO - PAPER MARIO CLONE
-// ============================================================
-
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// --- CONFIGURACIÓN Y ESTADOS GLOBALES ---
+// --- CONFIGURACIÓN ---
 let currentLevel = 1;
 let totalCoins = 0;
 let showDebug = false;
 let cameraX = 0;
 let levelWidth = 2000;
 
-// Variables de transiciones de nivel
 let transitionAlpha = 0;
 let isTransitioning = false;
 let transitionText = "";
 let transitionCallback = null;
-let transitionPhase = 0; // 0: entrada, 1: pausa, 2: salida
+let transitionPhase = 0;
 
-// Sistema de control por teclado
 const keys = {};
 window.addEventListener('keydown', e => { keys[e.code] = true; e.preventDefault(); });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
@@ -139,7 +133,229 @@ function toggleDebug() {
     btn.classList.toggle('active', showDebug);
 }
 
-// --- CLASE JUGADOR (ESTILO PAPER MARIO) ---
+// --- CLASE BLOQUE ROMPIBLE ---
+class BreakableBlock {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.width = 30;
+        this.height = 30;
+        this.broken = false;
+        this.bounceY = 0;
+        this.bounceSpeed = 0;
+        this.spawnCoin = false;
+        this.hitCooldown = 0;
+    }
+
+    hitFromBelow() {
+        if (this.broken) return false;
+        if (this.hitCooldown > 0) return false;
+        
+        this.hitCooldown = 20;
+        this.bounceY = -8;
+        this.bounceSpeed = 0.8;
+        
+        // 30% de probabilidad de soltar moneda
+        if (Math.random() < 0.3) {
+            this.spawnCoin = true;
+        }
+        
+        // Romper después de 3 golpes
+        if (Math.random() < 0.2) {
+            this.broken = true;
+            return true;
+        }
+        return false;
+    }
+
+    update() {
+        if (this.hitCooldown > 0) this.hitCooldown--;
+        
+        if (this.bounceY < 0) {
+            this.bounceY += this.bounceSpeed;
+            this.bounceSpeed += 0.3;
+        } else {
+            this.bounceY = 0;
+            this.bounceSpeed = 0;
+        }
+    }
+
+    draw() {
+        if (this.broken) return;
+        
+        let drawX = this.x - cameraX;
+        let drawY = this.y + this.bounceY;
+        
+        if (drawX > canvas.width || drawX + this.width < 0) return;
+
+        // Caja con estilo Mario
+        ctx.fillStyle = '#CD853F';
+        ctx.fillRect(drawX, drawY, this.width, this.height);
+        
+        // Borde
+        ctx.strokeStyle = '#8B6914';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(drawX, drawY, this.width, this.height);
+        
+        // Detalles (marca de interrogación)
+        ctx.fillStyle = '#FFF8DC';
+        ctx.font = '20px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('?', drawX + this.width/2, drawY + this.height - 6);
+        
+        // Brillo
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(drawX + 4, drawY + 4, 6, 6);
+
+        if (showDebug) {
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(drawX, drawY, this.width, this.height);
+        }
+    }
+}
+
+// --- CLASE TORTUGA (KOOPA) ---
+class Koopa {
+    constructor(x, y, minX, maxX) {
+        this.x = x;
+        this.y = y;
+        this.width = 28;
+        this.height = 30;
+        this.vx = 1.0;
+        this.minX = minX;
+        this.maxX = maxX;
+        this.isShell = false;
+        this.shellSpeed = 0;
+        this.shellTimer = 0;
+        this.facingRight = true;
+        this.walkCycle = 0;
+    }
+
+    update() {
+        if (this.isShell) {
+            // Caparazón: se desliza y frena
+            this.x += this.shellSpeed;
+            this.shellSpeed *= 0.995;
+            
+            if (Math.abs(this.shellSpeed) < 0.1) {
+                this.shellSpeed = 0;
+                this.shellTimer++;
+                if (this.shellTimer > 120) { // 2 segundos
+                    this.isShell = false;
+                    this.vx = this.facingRight ? 1 : -1;
+                }
+            }
+            
+            // Rebota en bordes como caparazón
+            if (this.x <= this.minX) {
+                this.x = this.minX;
+                this.shellSpeed = Math.abs(this.shellSpeed);
+            }
+            if (this.x + this.width >= this.maxX) {
+                this.x = this.maxX - this.width;
+                this.shellSpeed = -Math.abs(this.shellSpeed);
+            }
+            return;
+        }
+
+        // Movimiento normal
+        this.x += this.vx;
+        this.walkCycle += 0.15;
+
+        if (this.x <= this.minX) {
+            this.x = this.minX;
+            this.vx *= -1;
+            this.facingRight = true;
+        }
+        if (this.x + this.width >= this.maxX) {
+            this.x = this.maxX - this.width;
+            this.vx *= -1;
+            this.facingRight = false;
+        }
+    }
+
+    kick(speed) {
+        this.isShell = true;
+        this.shellSpeed = speed;
+        this.shellTimer = 0;
+    }
+
+    draw() {
+        let drawX = this.x - cameraX;
+        if (drawX > canvas.width || drawX + this.width < 0) return;
+
+        // Sombra
+        ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+        ctx.beginPath();
+        ctx.ellipse(drawX + this.width/2, this.y + this.height + 2, 14, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.save();
+        ctx.translate(drawX + this.width/2, this.y + this.height/2);
+
+        if (this.isShell) {
+            // Caparazón (círculo verde)
+            ctx.fillStyle = '#2E8B57';
+            ctx.beginPath();
+            ctx.arc(0, 0, 14, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#1a4f33';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Detalles del caparazón
+            ctx.strokeStyle = '#3CB371';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(-4, -4, 6, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(4, 4, 6, 0, Math.PI * 2);
+            ctx.stroke();
+        } else {
+            // Cuerpo de tortuga
+            ctx.scale(this.facingRight ? 1 : -1, 1);
+            
+            // Cabeza
+            ctx.fillStyle = '#8FBC8F';
+            ctx.beginPath();
+            ctx.arc(0, -6, 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            
+            // Ojos
+            ctx.fillStyle = '#000';
+            ctx.fillRect(4, -10, 3, 4);
+            ctx.fillRect(-7, -10, 3, 4);
+            
+            // Caparazón
+            ctx.fillStyle = '#2E8B57';
+            ctx.beginPath();
+            ctx.ellipse(0, 4, 12, 10, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#1a4f33';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Patas que caminan
+            ctx.fillStyle = '#8FBC8F';
+            let legOffset = Math.sin(this.walkCycle) * 3;
+            ctx.fillRect(-10, 10 + legOffset, 4, 6);
+            ctx.fillRect(6, 10 - legOffset, 4, 6);
+        }
+
+        ctx.restore();
+
+        if (showDebug) {
+            ctx.strokeStyle = '#ff00ff';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(drawX, this.y, this.width, this.height);
+        }
+    }
+}
+
+// --- CLASE JUGADOR ---
 class Player {
     constructor() {
         this.x = 100;
@@ -154,15 +370,16 @@ class Player {
         this.isGrounded = false;
         this.lives = 3;
         
-        // Propiedades estéticas Paper Mario
         this.facingRight = true;
         this.visualScaleX = 1;
         this.walkCycle = 0;
         this.bobbing = 0;
+        this.armAngle = 0;
+        this.legAngle = 0;
         
-        // Tolerancia de salto (Coyote Time)
         this.coyoteCounter = 0;
         this.maxCoyoteFrames = 8;
+        this.isMoving = false;
     }
 
     resetPosition() {
@@ -175,31 +392,31 @@ class Player {
     }
 
     update() {
-        // Movimiento Horizontal
         let moveIntent = 0;
         if (keys['ArrowRight'] || keys['KeyD']) moveIntent += 1;
         if (keys['ArrowLeft'] || keys['KeyA']) moveIntent -= 1;
 
         this.vx = moveIntent * this.speed;
+        this.isMoving = Math.abs(this.vx) > 0;
 
-        // Determinar dirección de mirada
         if (this.vx > 0) this.facingRight = true;
         if (this.vx < 0) this.facingRight = false;
 
-        // Interpolación del giro 2.5D
         let targetScale = this.facingRight ? 1 : -1;
         this.visualScaleX += (targetScale - this.visualScaleX) * 0.25;
 
-        // Animación de caminar
-        if (Math.abs(this.vx) > 0 && this.isGrounded) {
-            this.walkCycle += 0.25;
-            this.bobbing = Math.abs(Math.sin(this.walkCycle)) * 4;
+        // ANIMACIÓN DE CAMINAR MEJORADA
+        if (this.isMoving && this.isGrounded) {
+            this.walkCycle += 0.2;
+            this.bobbing = Math.abs(Math.sin(this.walkCycle)) * 3;
+            this.legAngle = Math.sin(this.walkCycle) * 0.6;
+            this.armAngle = Math.sin(this.walkCycle + 0.5) * 0.4;
         } else {
-            this.walkCycle = 0;
             this.bobbing = 0;
+            this.legAngle *= 0.9;
+            this.armAngle *= 0.9;
         }
 
-        // Manejo de Gravedad y Coyote Time
         if (!this.isGrounded) {
             this.vy += this.gravity;
             if (this.vy > 12) this.vy = 12;
@@ -209,7 +426,6 @@ class Player {
             this.coyoteCounter = this.maxCoyoteFrames;
         }
 
-        // Intención de Salto
         if (keys['ArrowUp'] || keys['KeyW'] || keys['Space']) {
             if (this.coyoteCounter > 0) {
                 this.vy = this.jumpForce;
@@ -218,11 +434,9 @@ class Player {
             }
         }
 
-        // Aplicar Movimiento
         this.x += this.vx;
         this.y += this.vy;
 
-        // Límites de pantalla
         if (this.x < 0) this.x = 0;
         if (this.x > levelWidth - this.width) this.x = levelWidth - this.width;
         if (this.y > canvas.height + 50) {
@@ -250,29 +464,36 @@ class Player {
 
     draw() {
         ctx.save();
-        // Sombra
-        ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+        
+        // --- SOMBRA CORREGIDA (debajo del jugador) ---
+        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
         ctx.beginPath();
-        ctx.ellipse(this.x + this.width/2 - cameraX, this.y + this.height, 14, 4, 0, 0, Math.PI * 2);
+        ctx.ellipse(this.x + this.width/2 - cameraX, this.y + this.height + 2, 16, 5, 0, 0, 0, Math.PI * 2);
         ctx.fill();
+        
+        // Sombra más sutil si está en el aire
+        if (!this.isGrounded) {
+            ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
+            ctx.beginPath();
+            ctx.ellipse(this.x + this.width/2 - cameraX, this.y + this.height + 6, 20, 4, 0, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
-        // Transformaciones
         ctx.translate(this.x + this.width / 2 - cameraX, this.y + this.height / 2);
         
         let squashY = 1;
         if (!this.isGrounded) {
-            squashY = this.vy < 0 ? 1.1 : 0.95;
+            squashY = this.vy < 0 ? 1.08 : 0.92;
         }
         ctx.scale(this.visualScaleX, squashY);
+        ctx.translate(0, -this.bobbing);
 
-        let currentBob = this.isGrounded ? this.bobbing : 0;
-        ctx.translate(0, -currentBob);
-
-        // Dibujo del personaje
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 2.5;
         ctx.lineJoin = 'round';
 
+        // --- CUERPO PRINCIPAL ---
+        
         // Gorra
         ctx.fillStyle = '#ff4d4d';
         ctx.beginPath();
@@ -313,109 +534,54 @@ class Player {
         ctx.fillStyle = '#ffcc00';
         ctx.fillRect(2, 3, 2, 2);
 
-        // Piernas
-        ctx.fillStyle = '#2e5cb8';
-        let piernaIzqY = 12;
-        let piernaDerY = 12;
-        if (Math.abs(this.vx) > 0 && this.isGrounded) {
-            piernaIzqY += Math.sin(this.walkCycle) * 3;
-            piernaDerY -= Math.sin(this.walkCycle) * 3;
-        }
-        
-        ctx.beginPath();
-        ctx.rect(-6, 10, 4, piernaIzqY - 10 + 2);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.rect(2, 10, 4, piernaDerY - 10 + 2);
-        ctx.fill();
-        ctx.stroke();
-
+        // --- BRAZOS CON ANIMACIÓN ---
+        ctx.fillStyle = '#ffcc99';
+        ctx.save();
+        ctx.translate(-8, -2);
+        ctx.rotate(this.armAngle);
+        ctx.fillRect(-2, 0, 4, 10);
+        ctx.strokeRect(-2, 0, 4, 10);
         ctx.restore();
-
-        // Hitbox debug
-        if (showDebug) {
-            ctx.strokeStyle = '#00ffff';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(this.x - cameraX, this.y, this.width, this.height);
-        }
-    }
-}
-
-// --- CLASE ENEMIGO ---
-class Enemy {
-    constructor(x, y, minX, maxX) {
-        this.x = x;
-        this.y = y;
-        this.width = 26;
-        this.height = 26;
-        this.vx = 1.2;
-        this.minX = minX;
-        this.maxX = maxX;
-        this.visualScaleX = 1;
-        this.walkCycle = Math.random() * 10;
-    }
-
-    update() {
-        this.x += this.vx;
-
-        if (this.x <= this.minX) {
-            this.x = this.minX;
-            this.vx *= -1;
-        }
-        if (this.x + this.width >= this.maxX) {
-            this.x = this.maxX - this.width;
-            this.vx *= -1;
-        }
-
-        let targetScale = this.vx > 0 ? 1 : -1;
-        this.visualScaleX += (targetScale - this.visualScaleX) * 0.2;
-    }
-
-    draw() {
-        this.walkCycle += 0.2;
-        let bobbing = Math.abs(Math.sin(this.walkCycle)) * 3;
 
         ctx.save();
-        // Sombra
-        ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
-        ctx.beginPath();
-        ctx.ellipse(this.x + this.width/2 - cameraX, this.y + this.height, 12, 3, 0, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.translate(8, -2);
+        ctx.rotate(-this.armAngle);
+        ctx.fillRect(-2, 0, 4, 10);
+        ctx.strokeRect(-2, 0, 4, 10);
+        ctx.restore();
 
-        ctx.translate(this.x + this.width/2 - cameraX, this.y + this.height/2 - bobbing);
-        ctx.scale(this.visualScaleX, 1);
+        // --- PIERNAS CON ANIMACIÓN ---
+        ctx.fillStyle = '#2e5cb8';
+        
+        // Pierna izquierda
+        ctx.save();
+        ctx.translate(-4, 10);
+        ctx.rotate(this.legAngle);
+        ctx.fillRect(-2, 0, 5, 12);
+        ctx.strokeRect(-2, 0, 5, 12);
+        ctx.restore();
 
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 2.5;
-        ctx.lineJoin = 'round';
+        // Pierna derecha
+        ctx.save();
+        ctx.translate(4, 10);
+        ctx.rotate(-this.legAngle);
+        ctx.fillRect(-3, 0, 5, 12);
+        ctx.strokeRect(-3, 0, 5, 12);
+        ctx.restore();
 
-        // Cuerpo
-        ctx.fillStyle = '#8a5229';
-        ctx.beginPath();
-        ctx.moveTo(-14, 4);
-        ctx.bezierCurveTo(-14, -14, 14, -14, 14, 4);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Ojos
-        ctx.fillStyle = '#000';
-        ctx.fillRect(2, -4, 2, 4);
-        ctx.fillRect(-4, -4, 2, 4);
-
-        // Base
-        ctx.fillStyle = '#ffebcc';
-        ctx.beginPath();
-        ctx.rect(-6, 4, 12, 9);
-        ctx.fill();
-        ctx.stroke();
+        // Zapatos
+        ctx.fillStyle = '#8B4513';
+        ctx.fillRect(-6, 20, 6, 4);
+        ctx.fillRect(2, 20, 6, 4);
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(-6, 20, 6, 4);
+        ctx.strokeRect(2, 20, 6, 4);
 
         ctx.restore();
 
         if (showDebug) {
-            ctx.strokeStyle = 'rgba(255, 0, 255, 0.8)';
+            ctx.strokeStyle = '#00ffff';
             ctx.lineWidth = 2;
             ctx.strokeRect(this.x - cameraX, this.y, this.width, this.height);
         }
@@ -426,84 +592,139 @@ class Enemy {
 let platforms = [];
 let coins = [];
 let enemies = [];
+let breakableBlocks = [];
+let koopas = [];
 let goalFlag = { x: 0, y: 0, width: 20, height: 160 };
 const player = new Player();
 
-// --- GENERADOR DE NIVELES ---
+// --- GENERADOR DE NIVELES (MUNDO FIJO POR NIVEL) ---
 function loadLevel(levelNum) {
     platforms = [];
     coins = [];
     enemies = [];
+    breakableBlocks = [];
+    koopas = [];
     
-    levelWidth = 1500 + levelNum * 400;
+    levelWidth = 1500 + levelNum * 300;
     player.resetPosition();
     cameraX = 0;
 
-    // Suelo inicial
-    platforms.push({ x: 0, y: 380, width: 400, height: 100 });
+    // Suelo inicial (siempre igual para todos los niveles)
+    platforms.push({ x: 0, y: 380, width: 350, height: 100 });
 
-    let currentX = 400;
+    let currentX = 350;
     let currentY = 380;
+    let blockId = 0;
+
+    // Usamos el nivel como semilla para generar siempre el mismo mundo
+    // pero diferente para cada nivel
+    const seed = levelNum * 137 + 42;
+    let pseudoRandom = (seed) => {
+        let s = seed;
+        return function() {
+            s = (s * 9301 + 49297) % 233280;
+            return s / 233280;
+        };
+    };
+    const rand = pseudoRandom(levelNum * 777 + 123);
 
     while (currentX < levelWidth - 300) {
-        let r = Math.random();
+        let r = rand();
 
-        if (r < 0.35) {
-            // Plataforma continua
-            let w = 150 + Math.random() * 150;
+        if (r < 0.30) {
+            // Plataforma continua con bloques rompibles
+            let w = 140 + rand() * 100;
             platforms.push({ x: currentX, y: currentY, width: w, height: 100 });
-            spawnCoinsOnPlatform(currentX, currentY, w);
-            if (w > 180) {
-                enemies.push(new Enemy(currentX + 50, currentY - 26, currentX, currentX + w));
+            
+            // Bloques rompibles sobre la plataforma
+            let numBlocks = Math.floor(w / 50);
+            for (let i = 0; i < numBlocks; i++) {
+                let bx = currentX + 20 + i * 45;
+                let by = currentY - 50;
+                breakableBlocks.push(new BreakableBlock(bx, by));
             }
+            
+            spawnCoinsOnPlatform(currentX, currentY, w);
             currentX += w;
 
-        } else if (r < 0.70) {
-            // Tubería
-            let pipeHeight = 45 + Math.random() * 30;
-            let pipeWidth = 50;
-            platforms.push({ x: currentX, y: currentY, width: 120, height: 100 });
-            platforms.push({ x: currentX + 35, y: currentY - pipeHeight, width: pipeWidth, height: pipeHeight + 100 });
-            currentX += 120;
+        } else if (r < 0.55) {
+            // Tubería con bloques
+            let pipeHeight = 40 + rand() * 30;
+            let pipeWidth = 40;
+            platforms.push({ x: currentX, y: currentY, width: 100, height: 100 });
+            platforms.push({ x: currentX + 30, y: currentY - pipeHeight, width: pipeWidth, height: pipeHeight + 100 });
+            
+            // Bloque sobre la tubería
+            breakableBlocks.push(new BreakableBlock(currentX + 35, currentY - pipeHeight - 40));
+            currentX += 100;
 
-        } else {
-            // Foso con plataforma
-            let pitWidth = 110 + Math.random() * 50;
-            let nextY = currentY + (Math.random() * 100 - 50);
+        } else if (r < 0.75) {
+            // Foso con plataforma y tortugas
+            let pitWidth = 110 + rand() * 60;
+            let nextY = currentY + (rand() * 80 - 40);
             if (nextY > 400) nextY = 400;
             if (nextY < 220) nextY = 220;
 
-            let platW = 60;
+            let platW = 55;
             let platX = currentX + (pitWidth / 2) - (platW / 2);
-            let platY = Math.min(currentY, nextY) - 30;
+            let platY = Math.min(currentY, nextY) - 25;
 
-            platforms.push({ x: platX, y: platY, width: platW, height: 20 });
-            coins.push({ x: platX + platW/2 - 10, y: platY - 40, width: 18, height: 18, collected: false });
+            platforms.push({ x: platX, y: platY, width: platW, height: 15 });
+            coins.push({ x: platX + platW/2 - 10, y: platY - 35, width: 18, height: 18, collected: false });
 
-            let nextSectionWidth = 150 + Math.random() * 100;
+            // Tortuga en la plataforma flotante
+            if (levelNum > 2) {
+                koopas.push(new Koopa(platX + 10, platY - 30, platX, platX + platW - 28));
+            }
+
+            let nextSectionWidth = 130 + rand() * 80;
             platforms.push({ x: currentX + pitWidth, y: nextY, width: nextSectionWidth, height: 100 });
             
             currentY = nextY;
             currentX += pitWidth + nextSectionWidth;
+
+        } else {
+            // Zona con tortugas y bloques
+            let w = 160 + rand() * 100;
+            platforms.push({ x: currentX, y: currentY, width: w, height: 100 });
+            
+            // Bloques rompibles
+            for (let i = 0; i < 3; i++) {
+                let bx = currentX + 30 + i * 50;
+                let by = currentY - 50 - (i % 2) * 40;
+                breakableBlocks.push(new BreakableBlock(bx, by));
+            }
+            
+            // Tortugas patrullando
+            if (levelNum > 1) {
+                let numKoopas = Math.floor(levelNum / 2) + 1;
+                for (let i = 0; i < Math.min(numKoopas, 3); i++) {
+                    let kx = currentX + 30 + i * 60;
+                    koopas.push(new Koopa(kx, currentY - 30, currentX, currentX + w - 28));
+                }
+            }
+            
+            spawnCoinsOnPlatform(currentX, currentY, w);
+            currentX += w;
         }
     }
 
-    // Plataforma final
-    platforms.push({ x: currentX, y: 380, width: 400, height: 100 });
-    goalFlag.x = currentX + 150;
+    // Meta siempre visible
+    platforms.push({ x: currentX, y: 380, width: 300, height: 100 });
+    goalFlag.x = currentX + 120;
     goalFlag.y = 380 - goalFlag.height;
 
     updateUI();
 }
 
 function spawnCoinsOnPlatform(x, y, width) {
-    let count = Math.floor(width / 60);
+    let count = Math.floor(width / 55);
     for (let i = 0; i < count; i++) {
         coins.push({
-            x: x + 30 + (i * 50),
-            y: y - 40,
-            width: 18,
-            height: 18,
+            x: x + 25 + (i * 45),
+            y: y - 35,
+            width: 16,
+            height: 16,
             collected: false
         });
     }
@@ -528,7 +749,6 @@ function updateTransition() {
     if (!isTransitioning) return;
 
     if (transitionPhase === 0) {
-        // Fundido de entrada (oscurecer)
         transitionAlpha += 0.04;
         if (transitionAlpha >= 1) {
             transitionAlpha = 1;
@@ -539,10 +759,8 @@ function updateTransition() {
             }
         }
     } else if (transitionPhase === 1) {
-        // Pequeña pausa
         transitionPhase = 2;
     } else if (transitionPhase === 2) {
-        // Fundido de salida (aclarar)
         transitionAlpha -= 0.04;
         if (transitionAlpha <= 0) {
             transitionAlpha = 0;
@@ -552,7 +770,6 @@ function updateTransition() {
     }
 }
 
-// --- COLISIONES ---
 function checkCollision(r1, r2) {
     return r1.x < r2.x + r2.width &&
            r1.x + r1.width > r2.x &&
@@ -564,7 +781,7 @@ function checkCollision(r1, r2) {
 function drawGame() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Dibujar plataformas
+    // Plataformas
     for (let plat of platforms) {
         let drawX = plat.x - cameraX;
         if (drawX > canvas.width || drawX + plat.width < 0) continue;
@@ -574,19 +791,15 @@ function drawGame() {
         ctx.strokeStyle = '#5D4037';
         ctx.lineWidth = 2;
         ctx.strokeRect(drawX, plat.y, plat.width, plat.height);
-
-        // Textura
-        ctx.strokeStyle = 'rgba(93, 64, 55, 0.3)';
-        ctx.lineWidth = 1;
-        for (let lineY = plat.y + 20; lineY < plat.y + plat.height; lineY += 20) {
-            ctx.beginPath();
-            ctx.moveTo(drawX + 5, lineY);
-            ctx.lineTo(drawX + plat.width - 5, lineY);
-            ctx.stroke();
-        }
     }
 
-    // Dibujar monedas
+    // Bloques rompibles
+    for (let block of breakableBlocks) {
+        block.update();
+        block.draw();
+    }
+
+    // Monedas
     for (let coin of coins) {
         if (coin.collected) continue;
         let drawX = coin.x - cameraX;
@@ -596,7 +809,7 @@ function drawGame() {
         ctx.shadowColor = 'rgba(255, 215, 0, 0.5)';
         ctx.shadowBlur = 15;
         ctx.beginPath();
-        ctx.ellipse(drawX + 9, coin.y + 9, 9, 9, 0, 0, Math.PI * 2);
+        ctx.ellipse(drawX + 8, coin.y + 8, 8, 8, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = '#DAA520';
         ctx.lineWidth = 2;
@@ -605,16 +818,22 @@ function drawGame() {
         ctx.shadowBlur = 0;
         ctx.fillStyle = '#FFF8DC';
         ctx.beginPath();
-        ctx.ellipse(drawX + 6, coin.y + 6, 3, 3, 0, 0, Math.PI * 2);
+        ctx.ellipse(drawX + 5, coin.y + 5, 3, 3, 0, 0, Math.PI * 2);
         ctx.fill();
     }
 
-    // Dibujar enemigos
+    // Tortugas
+    for (let koopa of koopas) {
+        koopa.update();
+        koopa.draw();
+    }
+
+    // Enemigos (Goombas)
     for (let enemy of enemies) {
         enemy.draw();
     }
 
-    // Dibujar bandera
+    // Bandera
     let flagDrawX = goalFlag.x - cameraX;
     if (flagDrawX > -20 && flagDrawX < canvas.width + 20) {
         ctx.fillStyle = '#8B4513';
@@ -639,10 +858,8 @@ function drawGame() {
         ctx.fillText('★', flagDrawX + 20, goalFlag.y + 38);
     }
 
-    // Dibujar jugador
     player.draw();
 
-    // Overlay de transición
     if (isTransitioning) {
         ctx.fillStyle = `rgba(0, 0, 0, ${transitionAlpha * 0.8})`;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -667,7 +884,6 @@ function gameLoop() {
     if (!isTransitioning) {
         player.update();
 
-        // Cámara
         let targetCamX = player.x - canvas.width / 3;
         cameraX += (targetCamX - cameraX) * 0.1;
         if (cameraX < 0) cameraX = 0;
@@ -691,6 +907,35 @@ function gameLoop() {
             }
         }
 
+        // Colisiones con bloques rompibles
+        for (let block of breakableBlocks) {
+            if (block.broken) continue;
+            if (checkCollision(player, block)) {
+                // Golpe desde abajo (saltando)
+                if (player.vy < 0 && player.y - player.vy >= block.y + block.height - 2) {
+                    if (block.hitFromBelow()) {
+                        // El bloque se rompió
+                        totalCoins += 3;
+                        updateUI();
+                    }
+                    player.vy = 2; // Rebote pequeño
+                }
+                // Colisión lateral con bloque
+                else if (player.vx > 0 && player.x + player.width - player.vx <= block.x) {
+                    player.x = block.x - player.width;
+                }
+                else if (player.vx < 0 && player.x - player.vx >= block.x + block.width) {
+                    player.x = block.x + block.width;
+                }
+                // Caer sobre el bloque
+                else if (player.vy > 0 && player.y + player.height - player.vy <= block.y + 2) {
+                    player.y = block.y - player.height;
+                    player.isGrounded = true;
+                    player.vy = 0;
+                }
+            }
+        }
+
         // Recolectar monedas
         for (let coin of coins) {
             if (!coin.collected && checkCollision(player, coin)) {
@@ -700,11 +945,41 @@ function gameLoop() {
             }
         }
 
-        // Enemigos
+        // Interacción con tortugas
+        for (let i = koopas.length - 1; i >= 0; i--) {
+            let koopa = koopas[i];
+            if (checkCollision(player, koopa)) {
+                if (player.vy > 0 && (player.y + player.height - player.vy) <= koopa.y + 8) {
+                    // Saltar sobre la tortuga
+                    if (!koopa.isShell) {
+                        koopa.kick(6 * (player.x < koopa.x ? -1 : 1));
+                        player.vy = player.jumpForce * 0.6;
+                    } else {
+                        // Patear caparazón
+                        if (Math.abs(koopa.shellSpeed) < 1) {
+                            koopa.shellSpeed = 8 * (player.x < koopa.x ? -1 : 1);
+                        } else {
+                            koopa.shellSpeed *= 1.2;
+                        }
+                        player.vy = player.jumpForce * 0.5;
+                    }
+                    totalCoins += 2;
+                    updateUI();
+                } else if (koopa.isShell && Math.abs(koopa.shellSpeed) > 2) {
+                    // Caparazón rápido mata al jugador
+                    player.handleDeath();
+                    break;
+                } else if (!koopa.isShell) {
+                    // Impacto lateral con tortuga viva
+                    player.handleDeath();
+                    break;
+                }
+            }
+        }
+
+        // Enemigos (Goombas)
         for (let i = enemies.length - 1; i >= 0; i--) {
             let enemy = enemies[i];
-            enemy.update();
-
             if (checkCollision(player, enemy)) {
                 if (player.vy > 0 && (player.y + player.height - player.vy) <= enemy.y + 8) {
                     enemies.splice(i, 1);
@@ -741,11 +1016,11 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
-// --- INICIAR EL JUEGO ---
+// --- INICIAR ---
 loadLevel(1);
 gameLoop();
 
-console.log('🎮 ¡Juego iniciado correctamente!');
+console.log('🎮 ¡Juego con tortugas y bloques rompibles iniciado!');
 </script>
 </body>
 </html>
