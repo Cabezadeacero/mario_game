@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paper Mario Clone - 10 Niveles</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #111;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        canvas {
+            background: linear-gradient(to bottom, #70c5ce, #b7e9f7);
+            display: block;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 2px 2px 0px #000;
+            pointer-events: none;
+            font-family: monospace;
+        }
+
+        #controls-panel {
+            margin-top: 15px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        button {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+            box-shadow: 0 4px 0 #c0392b;
+        }
+
+        button:active {
+            transform: translateY(4px);
+            box-shadow: none;
+        }
+
+        button.active {
+            background: #2ecc71;
+            box-shadow: 0 4px 0 #27ae60;
+        }
+
+        .instructions {
+            font-size: 14px;
+            color: #aaa;
+            max-width: 600px;
+            text-align: center;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui-layer">
+            <div id="ui-left">NIVEL: <span id="lbl-level">1</span>/10</div>
+            <div id="ui-center">MONEDAS: <span id="lbl-coins">0</span></div>
+            <div id="ui-right">VIDAS: <span id="lbl-lives">3</span></div>
+        </div>
+        <canvas id="gameCanvas" width="800" height="450"></canvas>
+    </div>
+
+    <div id="controls-panel">
+        <button id="btn-debug" onclick="toggleDebug()">Visualizar Colisiones: APAGADO</button>
+        <div class="instructions">
+            <strong>Controles:</strong> Flechas / A-D para Moverse. Flecha Arriba / W / Espacio para Saltar.<br>
+            Estilo <em>Paper Mario</em> con físicas elásticas (Coyote Time) y mapas 100% accesibles.
+        </div>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// --- CONFIGURACIÓN Y ESTADOS GLOBALES ---
+let currentLevel = 1;
+let totalCoins = 0;
+let showDebug = false;
+
+// Variables de transiciones de nivel
+let transitionAlpha = 0;
+let isTransitioning = false;
+let transitionText = "";
+let transitionCallback = null;
+
+// Sistema de control por teclado
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.code] = true; });
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+function toggleDebug() {
+    showDebug = !showDebug;
+    const btn = document.getElementById('btn-debug');
+    btn.textContent = `Visualizar Colisiones: ${showDebug ? 'ENCENDIDO' : 'APAGADO'}`;
+    btn.classList.toggle('active', showDebug);
+}
+
+// --- CLASE JUGADOR (ESTILO PAPER MARIO) ---
+class Player {
+    constructor() {
+        this.x = 100;
+        this.y = 300;
+        this.width = 24;
+        this.height = 38;
+        this.vx = 0;
+        this.vy = 0;
+        this.speed = 4.5;
+        this.gravity = 0.5;
+        this.jumpForce = -11.5;
+        this.isGrounded = false;
+        this.lives = 3;
+        
+        // Propiedades estéticas Paper Mario
+        this.facingRight = true;
+        this.visualScaleX = 1; // Para la rotación 2.5D al girar
+        this.walkCycle = 0;
+        this.bobbing = 0;
+        
+        // Tolerancia de salto (Coyote Time)
+        this.coyoteCounter = 0;
+        this.maxCoyoteFrames = 8;
+    }
+
+    resetPosition() {
+        this.x = 100;
+        this.y = 300;
+        this.vx = 0;
+        this.vy = 0;
+        this.isGrounded = false;
+        this.coyoteCounter = 0;
+    }
+
+    update() {
+        // Movimiento Horizontal
+        let moveIntent = 0;
+        if (keys['ArrowRight'] || keys['KeyD']) moveIntent += 1;
+        if (keys['ArrowLeft'] || keys['KeyA']) moveIntent -= 1;
+
+        this.vx = moveIntent * this.speed;
+
+        // Determinar dirección de mirada
+        if (this.vx > 0) this.facingRight = true;
+        if (this.vx < 0) this.facingRight = false;
+
+        // Interpolación del giro 2.5D de papel
+        let targetScale = this.facingRight ? 1 : -1;
+        this.visualScaleX += (targetScale - this.visualScaleX) * 0.25;
+
+        // Animación dinámica de caminar (Paper)
+        if (Math.abs(this.vx) > 0 && this.isGrounded) {
+            this.walkCycle += 0.25;
+            this.bobbing = Math.abs(Math.sin(this.walkCycle)) * 4;
+        } else {
+            this.walkCycle = 0;
+            this.bobbing = 0;
+        }
+
+        // Manejo de Gravedad y Coyote Time
+        if (!this.isGrounded) {
+            this.vy += this.gravity;
+            if (this.vy > 12) this.vy = 12; // Velocidad terminal
+            this.coyoteCounter--;
+        } else {
+            this.vy = 0;
+            this.coyoteCounter = this.maxCoyoteFrames;
+        }
+
+        // Intención de Salto con tolerancia
+        if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space'])) {
+            if (this.coyoteCounter > 0) {
+                this.vy = this.jumpForce;
+                this.isGrounded = false;
+                this.coyoteCounter = 0; // Consumir salto
+            }
+        }
+
+        // Aplicar Movimiento Provisional
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Límites básicos de pantalla e irse al vacío
+        if (this.x < 0) this.x = 0;
+        if (this.y > canvas.height + 50) {
+            this.handleDeath();
+        }
+    }
+
+    handleDeath() {
+        this.lives--;
+        updateUI();
+        if (this.lives <= 0) {
+            startTransition("¡GAME OVER!\nReiniciando aventura...", () => {
+                currentLevel = 1;
+                totalCoins = 0;
+                this.lives = 3;
+                loadLevel(currentLevel);
+            });
+        } else {
+            startTransition("¡Perdiste una vida!", () => {
+                this.resetPosition();
+                cameraX = 0;
+            });
+        }
+    }
+
+    draw() {
+        ctx.save();
+        // Sombra plana en los pies (Estética Paper Mario)
+        ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+        ctx.beginPath();
+        ctx.ellipse(this.x + this.width/2 - cameraX, this.y + this.height, 14, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Trasladar al centro del cuerpo de Mario para aplicar rotación y deformación
+        ctx.translate(this.x + this.width / 2 - cameraX, this.y + this.height / 2);
+        
+        // Efecto de Squash & Stretch (contracción en el aire o al andar)
+        let squashY = 1;
+        if (!this.isGrounded) {
+            squashY = this.vy < 0 ? 1.1 : 0.95; // Se estira al subir, se aplasta al caer
+        }
+        ctx.scale(this.visualScaleX, squashY);
+
+        // Desplazamiento por la animación de caminata
+        let currentBob = this.isGrounded ? this.bobbing : 0;
+        ctx.translate(0, -currentBob);
+
+        // --- DIBUJO GEOMÉTRICO CON BORDE NEGRO DE TROQUEL ---
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 2.5;
+        ctx.lineJoin = 'round';
+
+        // 1. Gorra y cabeza
+        ctx.fillStyle = '#ff4d4d'; // Rojo Mario
+        ctx.beginPath(); ctx.rect(-10, -22, 20, 7); ctx.fill(); ctx.stroke(); // Gorra
+        ctx.fillStyle = '#ffcc99'; // Piel
+        ctx.beginPath(); ctx.rect(-8, -15, 16, 11); ctx.fill(); ctx.stroke(); // Cara
+
+        // Detalle de bigote y ojo (siempre apuntando al frente relativo)
+        ctx.fillStyle = '#4a2711';
+        ctx.fillRect(2, -11, 5, 3); // Bigote
+        ctx.fillStyle = '#000';
+        ctx.fillRect(3, -14, 2, 3);  // Ojo
+
+        // 2. Overol y Cuerpo
+        ctx.fillStyle = '#ff4d4d'; // Camisa roja
+        ctx.beginPath(); ctx.rect(-8, -4, 16, 12); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#2e5cb8'; // Overol Azul
+        ctx.beginPath(); ctx.rect(-7, 2, 14, 10); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ffcc00'; // Botón amarillo
+        ctx.fillRect(2, 3, 2, 2);
+
+        // 3. Piernas animadas de papel
+        ctx.fillStyle = '#2e5cb8';
+        let piernaIzqY = 12;
+        let piernaDerY = 12;
+        if (Math.abs(this.vx) > 0 && this.isGrounded) {
+            // Alternar altura de piernas simulando acordeón de papel
+            piernaIzqY += Math.sin(this.walkCycle) * 3;
+            piernaDerY -= Math.sin(this.walkCycle) * 3;
+        }
+        
+        // Dibujo Pierna Izquierda
+        ctx.beginPath(); ctx.rect(-6, 10, 4, piernaIzqY - 10 + 2); ctx.fill(); ctx.stroke();
+        // Dibujo Pierna Derecha
+        ctx.beginPath(); ctx.rect(2, 10, 4, piernaDerY - 10 + 2); ctx.fill(); ctx.stroke();
+
+        ctx.restore();
+
+        // Hitbox de depuración
+        if (showDebug) {
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(this.x - cameraX, this.y, this.width, this.height);
+        }
+    }
+}
+
+// --- CLASE ENEMIGO (GOOMBA DE PAPEL) ---
+class Enemy {
+    constructor(x, y, minX, maxX) {
+        this.x = x;
+        this.y = y;
+        this.width = 26;
+        this.height = 26;
+        this.vx = 1.2;
+        this.minX = minX;
+        this.maxX = maxX;
+        this.visualScaleX = 1;
+        this.walkCycle = Math.random() * 10;
+    }
+
+    update() {
+        this.x += this.vx;
+
+        // Comportamiento de patrulla inteligente (Rebotar en límites asignados)
+        if (this.x <= this.minX) {
+            this.x = this.minX;
+            this.vx *= -1;
+        }
+        if (this.x + this.width >= this.maxX) {
+            this.x = this.maxX - this.width;
+            this.vx *= -1;
+        }
+
+        // Giro visual de papel
+        let targetScale = this.vx > 0 ? 1 : -1;
+        this.visualScaleX += (targetScale - this.visualScaleX) * 0.2;
+    }
+
+    draw() {
+        this.walkCycle += 0.2;
+        let bobbing = Math.abs(Math.sin(this.walkCycle)) * 3;
+
+        ctx.save();
+        // Sombra plana inferior
+        ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+        ctx.beginPath();
+        ctx.ellipse(this.x + this.width/2 - cameraX, this.y + this.height, 12, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.translate(this.x + this.width/2 - cameraX, this.y + this.height/2 - bobbing);
+        ctx.scale(this.visualScaleX, 1);
+
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 2.5;
+        ctx.lineJoin = 'round';
+
+        // Cabeza hongo (Marrón Goomba)
+        ctx.fillStyle = '#8a5229';
+        ctx.beginPath();
+        ctx.moveTo(-14, 4);
+        ctx.bezierCurveTo(-14, -14, 14, -14, 14, 4);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+
+        // Ojos enojados
+        ctx.fillStyle = '#000';
+        ctx.fillRect(2, -4, 2, 4);
+        ctx.fillRect(-4, -4, 2, 4);
+
+        // Cuerpo/Base pequeña
+        ctx.fillStyle = '#ffebcc';
+        ctx.beginPath(); ctx.rect(-6, 4, 12, 9); ctx.fill(); ctx.stroke();
+
+        ctx.restore();
+
+        if (showDebug) {
+            ctx.strokeStyle = 'rgba(255, 0, 255, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(this.x - cameraX, this.y, this.width, this.height);
+        }
+    }
+}
+
+// --- ELEMENTOS DEL MAPA ---
+let platforms = [];
+let coins = [];
+let enemies = [];
+let goalFlag = { x: 0, y: 0, width: 20, height: 160 };
+let cameraX = 0;
+let levelWidth = 2000;
+
+const player = new Player();
+
+// --- GENERADOR DE NIVELES PROCEDURAL ACCESIBLE Y MATEMÁTICO ---
+function loadLevel(levelNum) {
+    platforms = [];
+    coins = [];
+    enemies = [];
+    
+    levelWidth = 1500 + levelNum * 400; // El mapa crece progresivamente
+    player.resetPosition();
+    cameraX = 0;
+
+    // 1. Suelo Base Seguro Inicial
+    platforms.push({ x: 0, y: 380, width: 400, height: 100 });
+
+    let currentX = 400;
+    let currentY = 380;
+
+    // Bucle para crear tramos de plataformas lógicamente alcanzables
+    while (currentX < levelWidth - 300) {
+        let r = Math.random();
+
+        if (r < 0.35) { 
+            // Camino Continuo Llano
+            let w = 150 + Math.random() * 150;
+            platforms.push({ x: currentX, y: currentY, width: w, height: 100 });
+            
+            // Colocar monedas y un enemigo patrullando este tramo seguro
+            spawnCoinsOnPlatform(currentX, currentY, w);
+            if (w > 180) {
+                enemies.push(new Enemy(currentX + 50, currentY - 26, currentX, currentX + w));
+            }
+            currentX += w;
+
+        } else if (r < 0.70) { 
+            // Obstáculo tipo Tubería Clásica (Altura acotada para que sea saltable)
+            let pipeHeight = 45 + Math.random() * 30; // Max 75 de altura
+            let pipeWidth = 50;
+
+            // Suelo plano debajo de la tubería
+            platforms.push({ x: currentX, y: currentY, width: 120, height: 100 });
+            // La tubería en sí
+            platforms.push({ x: currentX + 35, y: currentY - pipeHeight, width: pipeWidth, height: pipeHeight + 100 });
+
+            currentX += 120;
+
+        } else { 
+            // Foso Vacío Controlado con Plataforma de Rescate en el medio
+            let pitWidth = 110 + Math.random() * 50; // Ancho máximo del vacío
+            
+            // Determinar cambio de altura sutil (Máximo variación de 50px hacia arriba o abajo)
+            let nextY = currentY + (Math.random() * 100 - 50);
+            if (nextY > 400) nextY = 400;
+            if (nextY < 220) nextY = 220; // Que no quede muy alto en el cielo
+
+            // Plataforma flotante salvavidas central para saltos limpios
+            let platW = 60;
+            let platX = currentX + (pitWidth / 2) - (platW / 2);
+            let platY = Math.min(currentY, nextY) - 30; // Posición óptima intermedia
+
+            platforms.push({ x: platX, y: platY, width: platW, height: 20 });
+            
+            // Moneda de guía sobre la plataforma flotante
+            coins.push({ x: platX + platW/2 - 10, y: platY - 40, width: 18, height: 18, collected: false });
+
+            // Siguiente terreno firme tras el foso
+            let nextSectionWidth = 150 + Math.random() * 100;
+            platforms.push({ x: currentX + pitWidth, y: nextY, width: nextSectionWidth, height: 100 });
+            
+            currentY = nextY;
+            currentX += pitWidth + nextSectionWidth;
+        }
+    }
+
+    // Plataforma Final Segura para colocar el Poste de Meta
+    platforms.push({ x: currentX, y: 380, width: 400, height: 100 });
+    goalFlag.x = currentX + 150;
+    goalFlag.y = 380 - goalFlag.height;
+
+    updateUI();
+}
+
+function spawnCoinsOnPlatform(x, y, width) {
+    let count = Math.floor(width / 60);
+    for (let i = 0; i < count; i++) {
+        coins.push({
+            x: x + 30 + (i * 50),
+            y: y - 40,
+            width: 18,
+            height: 18,
+            collected: false
+        });
+    }
+}
+
+function updateUI() {
+    document.getElementById('lbl-level').textContent = currentLevel;
+    document.getElementById('lbl-coins').textContent = totalCoins;
+    document.getElementById('lbl-lives').textContent = player.lives;
+}
+
+// --- LOGICA DE TRANSICIONES SUTILES ---
+function startTransition(text, callback) {
+    isTransitioning = true;
+    transitionText = text;
+    transitionAlpha = 0;
+    transitionCallback = callback;
+}
+
+function updateTransition() {
+    if (!isTransitioning) return;
+
+    if (transitionCallback !== null) {
+        // Fase de Fundido de entrada (Oscurecer)
+        transitionAlpha += 0.04;
+        if (transitionAlpha >= 1) {
+            transitionAlpha = 1;
+            transitionCallback(); // Ejecutar cambio de estado (Próximo nivel / Revivir)
+            transitionCallback = null; // Pasar a fase de aclarado
+        }
+    } else {
+        // Fase de Fundido de salida (Aclarar)
+        transitionAlpha -= 0.04;
+        if (transitionAlpha <= 0) {
+            transitionAlpha = 0;
+            isTransitioning = false;
+        }
+    }
+}
+
+// --- DETECTOR DE COLISIONES RECTANGULARES (AABB) ---
+function checkCollision(r1, r2) {
+    return r1.x < r2.x + r2.width &&
+           r1.x + r1.width > r2.x &&
+           r1.y < r2.y + r2.height &&
+           r1.y + r1.height > r2.y;
+}
+
+// --- BUCLE DE JUEGO PRINCIPAL ---
+function gameLoop() {
+    // 1. ACTUALIZACIÓN DE ESTADOS
+    if (!isTransitioning) {
+        player.update();
+
+        // Movimiento de la Cámara suave enfocado en Mario
+        let targetCamX = player.x - canvas.width / 3;
+        cameraX += (targetCamX - cameraX) * 0.1;
+        if (cameraX < 0) cameraX = 0;
+        if (cameraX > levelWidth - canvas.width) cameraX = levelWidth - canvas.width;
+
+        // Gestión Avanzada de Colisiones con Plataformas Rígidas
+        player.isGrounded = false;
+        for (let plat of platforms) {
+            if (checkCollision(player, plat)) {
+                // Resolver colisión desde arriba (Aterrizaje óptimo)
+                if (player.vy > 0 && (player.y + player.height - player.vy) <= plat.y + 4) {
+                    player.y = plat.y - player.height;
+                    player.isGrounded = true;
+                }
+                // Resolver colisión lateral contra tuberías o muros elevados
+                else if (player.vx > 0 && (player.x + player.width - player.vx) <= plat.x) {
+                    player.x = plat.x - player.width;
+                }
+                else if (player.vx < 0 && (player.x - player.vx) >= plat.x + plat.width) {
+                    player.x = plat.x + plat.width;
+                }
+            }
+        }
+
+        // Gestión de Recolección de Monedas
+        for (let coin of coins) {
+            if (!coin.collected && checkCollision(player, coin)) {
+                coin.collected = true;
+                totalCoins++;
+                updateUI();
+            }
+        }
+
+        // Gestión de Enemigos y Combate Aéreo
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            let enemy = enemies[i];
+            enemy.update();
+
+            if (checkCollision(player, enemy)) {
+                // ¿Viene cayendo sobre la cabeza del enemigo?
+                if (player.vy > 0 && (player.y + player.height - player.vy) <= enemy.y + 8) {
+                    enemies.splice(i, 1); // Eliminar enemigo
+                    player.vy = player.jumpForce * 0.75; // Impulso elástico de salto
+                    totalCoins += 2; // Recompensa extra
+                    updateUI();
+                } else {
+                    // Impacto letal de costado
+                    player.handleDeath();
+                    break;
+                }
+            }
+        }
+
+        // Comprobación de Meta (Bandera)
+        if (checkCollision(player, goalFlag)) {
+            if (currentLevel < 10) {
+                startTransition(`¡NIVEL ${currentLevel} COMPLETADO!\nCargando siguiente mundo...`, () => {
+                    currentLevel++;
+                    loadLevel(currentLevel);
+                });
+            } else {
+                startTransition("¡FELICITACIONES!\nCompletaste los 10 niveles del juego.", () => {
+                    currentLevel = 1;
+                    totalCoins = 0;
+                    player.lives = 3;
+                  // Continuación del código donde se cortó
+                    currentLevel = 1;
+                    totalCoins = 0;
+                    player.lives = 3;
+                    loadLevel(currentLevel);
+                });
+            }
+        }
+    }
+
+    // Actualizar transiciones
+    updateTransition();
+
+    // 2. DIBUJADO DEL JUEGO
+    drawGame();
+
+    requestAnimationFrame(gameLoop);
+}
+
+function drawGame() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Dibujar plataformas
+    ctx.shadowColor = 'rgba(0,0,0,0.2)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 4;
+
+    for (let plat of platforms) {
+        let drawX = plat.x - cameraX;
+        if (drawX > canvas.width || drawX + plat.width < 0) continue;
+
+        // Estilo Paper Mario - bloques con bordes
+        ctx.fillStyle = '#8B7355'; // Marrón tierra
+        ctx.fillRect(drawX, plat.y, plat.width, plat.height);
+        
+        ctx.strokeStyle = '#5D4037';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(drawX, plat.y, plat.width, plat.height);
+
+        // Textura de líneas horizontales (estilo papel)
+        ctx.strokeStyle = 'rgba(93, 64, 55, 0.3)';
+        ctx.lineWidth = 1;
+        for (let lineY = plat.y + 20; lineY < plat.y + plat.height; lineY += 20) {
+            ctx.beginPath();
+            ctx.moveTo(drawX + 5, lineY);
+            ctx.lineTo(drawX + plat.width - 5, lineY);
+            ctx.stroke();
+        }
+    }
+
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+
+    // Dibujar monedas
+    for (let coin of coins) {
+        if (coin.collected) continue;
+        let drawX = coin.x - cameraX;
+        if (drawX > canvas.width || drawX + coin.width < 0) continue;
+
+        // Moneda brillante estilo Paper Mario
+        ctx.fillStyle = '#FFD700';
+        ctx.shadowColor = 'rgba(255, 215, 0, 0.5)';
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.ellipse(drawX + 9, coin.y + 9, 9, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#DAA520';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Brillo interior
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#FFF8DC';
+        ctx.beginPath();
+        ctx.ellipse(drawX + 6, coin.y + 6, 3, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Dibujar enemigos
+    for (let enemy of enemies) {
+        enemy.draw();
+    }
+
+    // Dibujar bandera de meta
+    let flagDrawX = goalFlag.x - cameraX;
+    if (flagDrawX > -20 && flagDrawX < canvas.width + 20) {
+        // Poste
+        ctx.fillStyle = '#8B4513';
+        ctx.fillRect(flagDrawX + 8, goalFlag.y, 4, goalFlag.height);
+        
+        // Bandera
+        ctx.fillStyle = '#FF4500';
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(255, 69, 0, 0.4)';
+        ctx.beginPath();
+        ctx.moveTo(flagDrawX + 12, goalFlag.y + 10);
+        ctx.lineTo(flagDrawX + 50, goalFlag.y + 30);
+        ctx.lineTo(flagDrawX + 12, goalFlag.y + 50);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#CC0000';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Estrella en la bandera
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#FFD700';
+        ctx.font = '20px Arial';
+        ctx.fillText('★', flagDrawX + 20, goalFlag.y + 38);
+    }
+
+    // Dibujar jugador
+    player.draw();
+
+    // Dibujar overlay de transición
+    if (isTransitioning) {
+        ctx.fillStyle = `rgba(0, 0, 0, ${transitionAlpha * 0.8})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        if (transitionAlpha > 0.1 && transitionText) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 32px Arial';
+            ctx.textAlign = 'center';
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.shadowBlur = 10;
+            const lines = transitionText.split('\n');
+            lines.forEach((line, index) => {
+                ctx.fillText(line, canvas.width/2, canvas.height/2 - 20 + index * 40);
+            });
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    ctx.shadowBlur = 0;
+}
+
+// --- INICIAR EL JUEGO ---
+loadLevel(1);
+gameLoop();
